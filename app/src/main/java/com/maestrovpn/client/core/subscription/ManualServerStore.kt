@@ -7,28 +7,20 @@ import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import java.io.File
 
-// Хранилище ручных серверов (срез 5, issue #1).
-// То же файловое хранилище, что у подписок (SubscriptionManager): filesDir,
-// index в одном JSON-файле, запись через tmp+rename. Room (Profile/RemoteServer)
-// не трогается: RemoteServer — это URL удалённых профилей Maestro, а не серверы.
+// Хранилище ручных серверов (срез 5, issue #1; переведено на Xray-only ядро
+// в срезе 7). То же файловое хранилище, что у подписок (SubscriptionManager):
+// filesDir, index в одном JSON-файле, запись через tmp+rename.
 // Путь загрузки подписок НЕ трогается: этот класс не вызывает download,
 // downloadWithFallback, importSubscription или refresh.
 class ManualServerStore(
     private val context: Context,
     private val engine: VpnEngine,
 ) {
-    companion object {
-        const val MANIFEST_FILE_NAME = "subxhttp-nodes.json"
-    }
-
     private val dir: File
         get() = File(context.filesDir, "manual-servers").apply { mkdirs() }
 
     private val indexFile: File
         get() = File(dir, "servers.json")
-
-    private val manifestFile: File
-        get() = File(context.filesDir, MANIFEST_FILE_NAME)
 
     private val json = Json { ignoreUnknownKeys = true }
 
@@ -57,7 +49,7 @@ class ManualServerStore(
         }
         val (parsed, reason) = server.toParsedServer()
         if (parsed == null) return reason ?: "Сервер не удалось преобразовать в конфиг"
-        val built = SingBoxConfigBuilder.build(listOf(parsed), parsed.tag)
+        val built = XrayConfigBuilder.build(listOf(parsed), parsed.tag)
         if (!engine.validateConfig(built.configJson)) {
             return "Собранный конфиг не прошёл проверку движка"
         }
@@ -81,33 +73,21 @@ class ManualServerStore(
     }
 
     /**
-     * Собрать sing-box конфиг для выбора сервера (тот же путь, что
+     * Собрать Xray-конфиг для выбора сервера (тот же путь, что
      * SubscriptionManager.buildConfigFor у подписок: сборка -> проверка
-     * движком -> манифест раннера). Манифест переписывается под выбранный
-     * сервер: при xhttp — манифест узла, иначе старый манифест удаляется,
-     * чтобы раннер не поднялся по stale-узлу другой подписки/сервера.
+     * движком). Возвращает JSON конфига; отдельный манифест больше не нужен —
+     * xhttp-узлы теперь обычные Xray outbound'ы в том же конфиге.
      */
-    fun buildConfigFor(server: ManualServer): Result<SingBoxConfigBuilder.BuiltConfig> =
+    fun buildConfigFor(server: ManualServer): Result<String> =
         runCatching {
             val pair = server.toParsedServer()
             val parsed = pair.first
                 ?: throw IllegalStateException(pair.second ?: "Сервер не удалось преобразовать")
-            val built = SingBoxConfigBuilder.build(listOf(parsed), parsed.tag)
+            val built = XrayConfigBuilder.build(listOf(parsed), parsed.tag)
             if (!engine.validateConfig(built.configJson)) {
                 throw IllegalStateException("Собранный конфиг не прошёл проверку движка")
             }
-            if (built.manifestJson != null) {
-                val tmp = File(context.filesDir, manifestFile.name + ".tmp")
-                tmp.writeText(built.manifestJson)
-                if (!tmp.renameTo(manifestFile)) {
-                    manifestFile.writeText(built.manifestJson)
-                    tmp.delete()
-                }
-            } else {
-                manifestFile.delete()
-            }
-            engine.onSubscriptionChanged()
-            built
+            built.configJson
         }
 
     // Выбор ручного сервера (аналог ServerSelection у подписок).

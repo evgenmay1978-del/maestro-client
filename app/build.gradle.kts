@@ -8,26 +8,22 @@ plugins {
     id("com.google.devtools.ksp")
 }
 
-// Срез 1: движок sing-box (libbox.aar) подключается, только если AAR уже собран
-// (см. docs: сборка libbox — Go 1.25.11 + NDK 28 + sing-box v1.14.4, рецепт из
-// .github/workflows/libbox.yml репозитория Maestro). Без AAR собирается stub-движок,
-// а реализация SingBoxEngine лежит в src/libbox/java и в сборку не входит.
-val libboxAar = file("libs/libbox.aar")
-val hasLibbox = libboxAar.exists()
-
+// Срез 7 (issue #8): единственное ядро — Xray-core, бинарь
+// app/src/main/jniLibs/*/libmaestro_subxhttp.so. sing-box/libbox удалён
+// полностью: XHTTP он не поддерживает ни в одной версии, а узлы Maestro
+// и Akonit — VLESS/XHTTP/REALITY. Нативный JNI-лаунчер
+// (src/main/cpp/xray_spawn.c) собирается через ndk-build — CMake не нужен.
 android {
     namespace = "com.maestrovpn.client"
     compileSdk = 36
-    // ndkVersion намеренно не задаётся: нативного кода для сборки нет
-    // (jniLibs — готовые .so Xray-раннера); NDK нужен только для сборки libbox.aar
-    // (см. .github/workflows/android.yml, job libbox).
+    ndkVersion = "28.0.13004108"
 
     defaultConfig {
         applicationId = "com.maestrovpn.client"
         minSdk = 24
         targetSdk = 35
         versionCode = 1
-        versionName = "0.1.0-slice5"
+        versionName = "0.1.0-slice7"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         // Своя deeplink-схема нового клиента (решение среза 1; поменять легко).
         buildConfigField("String", "DEEP_LINK_SCHEME", "\"maestro\"")
@@ -48,6 +44,12 @@ android {
         }
     }
 
+    externalNativeBuild {
+        ndkBuild {
+            path = file("src/main/cpp/Android.mk")
+        }
+    }
+
     buildFeatures {
         compose = true
         buildConfig = true
@@ -57,19 +59,6 @@ android {
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
-    }
-
-    sourceSets {
-        getByName("main") {
-            if (hasLibbox) {
-                // Обе директории: AGP 9 с built-in Kotlin берёт Kotlin-исходники
-                // из kotlin.srcDirs, а не только из java.srcDirs — без второй строки
-                // файлы src/libbox/java не попадают в compileDebugKotlin
-                // (доказано логом --info: "Kotlin source files" без libbox).
-                java.srcDirs("src/libbox/java")
-                kotlin.srcDirs("src/libbox/java")
-            }
-        }
     }
 }
 
@@ -98,19 +87,16 @@ dependencies {
     implementation("androidx.core:core-ktx:1.17.0")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.10.2")
     implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.10.0")
-    // Ядро среза 2 (версии — как у MaestroVPN 1.0.212): Room (профили/настройки),
-    // WorkManager (автообновление подписок), LiveData (статус службы), preference-ktx
-    // (PreferenceDataStore для RoomPreferenceDataStore).
+    // Room (настройки), LiveData (статус службы), preference-ktx
+    // (PreferenceDataStore для RoomPreferenceDataStore). WorkManager удалён
+    // в срезе 7: автообновление подписок через него было мёртвым кодом
+    // (Remote-профили никто не создавал).
     implementation("androidx.lifecycle:lifecycle-livedata-ktx:2.10.0")
     implementation("androidx.lifecycle:lifecycle-viewmodel-ktx:2.10.0")
     implementation("androidx.room:room-runtime:2.8.4")
     implementation("androidx.room:room-ktx:2.8.4")
-    implementation("androidx.work:work-runtime-ktx:2.11.1")
     implementation("androidx.preference:preference-ktx:1.2.1")
     ksp("androidx.room:room-compiler:2.8.4")
     debugImplementation("androidx.compose.ui:ui-tooling")
     debugImplementation("androidx.compose.ui:ui-test-manifest")
-    if (hasLibbox) {
-        implementation(files(libboxAar))
-    }
 }

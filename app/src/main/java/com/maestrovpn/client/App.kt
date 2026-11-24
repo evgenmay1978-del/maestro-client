@@ -11,10 +11,8 @@ import androidx.core.content.getSystemService
 import com.maestrovpn.client.core.engine.EngineManager
 
 // Точка входа приложения (срез 2): системные сервисы для ядра + инициализация движка.
-// Libbox.setup() вызывается внутри SingBoxEngine (src/libbox), когда AAR подключён;
-// без AAR работает StubEngine (см. EngineManager).
-// Companion — те же ленивые сервисы, что у Maestro Application (их ждут BoxService,
-// PlatformInterfaceWrapper, ServiceNotification).
+// Движок — XrayEngine (срез 7, issue #8); sing-box/libbox удалён полностью.
+// Companion — те же ленивые сервисы, что у Maestro Application.
 class App : Application() {
     override fun attachBaseContext(base: Context?) {
         super.attachBaseContext(base)

@@ -20,10 +20,11 @@
 - Подписки: загрузка по URL + validate-before-save + атомарная запись
   (`core/subscription/SubscriptionManager.kt`).
 - VPN-служба (`bg/ClientVpnService.kt`), QS-плитка, BootReceiver, deeplink `maestro://`.
-- Движок: интерфейс `VpnEngine` + `StubEngine`. Настоящий sing-box (`libbox.aar`)
-  подключается, только если собран (см. ниже); без него сборка работает на заглушке.
-- Xray-раннер: `libmaestro_subxhttp.so` (arm64-v8a + armeabi-v7a) уже в `jniLibs/`,
-  подключение раннера — срез 2 (см. `maestro-client-core-survey.md`).
+- Движок: Xray-core (`XrayEngine`, срез 7, issue #8) — единственный, как в Happ.
+  Бинарь `libmaestro_subxhttp.so` (arm64-v8a + armeabi-v7a) в `jniLibs/`;
+  запуск — нативный fork/exec (`XrayNative`, см. `src/main/cpp/xray_spawn.c`),
+  TUN — через Xray tun inbound, режим «только прокси» — SOCKS :10808 + HTTP :10809.
+  sing-box/libbox удалён полностью (XHTTP он не поддерживает ни в одной версии).
 
 ## Сборка
 
@@ -38,17 +39,19 @@ cd ~/workspace/maestro-client
 в `~/.gradle/gradle.properties` (вне проекта), SDK ставился напрямую через curl,
 т.к. `sdkmanager` не проходит egress-прокси (нет proxy-auth в plain Java).
 
-## Сборка libbox.aar (sing-box 1.14.4)
+## Нативный код (срез 7)
 
-В репозитории Maestro AAR нет — он собирается в CI (`.github/workflows/libbox.yml`):
-Go 1.25.11 + JDK 17 + NDK 28.0.13004108 + `make lib_install` + `make lib_android`.
-Готовый `libbox.aar` кладётся в `app/libs/` — тогда сборка включает
-`src/libbox/java` с настоящим `SingBoxEngine` (реализация — срез 2).
+sing-box/libbox удалён полностью. NDK 28.0.13004108 нужен только для
+JNI-лаунчера `xrayspawn` (`src/main/cpp/xray_spawn.c`, ndk-build, без CMake):
+нативный fork/exec — единственный способ передать дочернему Xray tun fd
+(ProcessBuilder закрывает все fd >= 3 при exec).
 
 ## Что НЕ вошло в срез 1 (следующие срезы по таблице соответствия)
 
-- Настоящий движок sing-box + Xray-раннер (ждёт `libbox.aar`).
-- Парсер подписок (share-ссылки, base64, Xray JSON), редактор сервера, маршрутизация.
+- Маршрутизация (issue #2), продвинутые настройки (issue #3), пинг и статистика
+  (issue #4), свойства подписки/autoswitch (issue #5), виджет/шорткаты/Send-to-TV
+  (issue #6). Движок Xray, парсер подписок, редактор сервера и медальон — готовы
+  (срезы 2, 3, 5, 7).
 - Tunnel-fetch (отложен: нужен только при поднятом туннеле и заблокированной панели).
 - Полный медальон (вращение, объёмная M, гнездо, spin-down), виджет, шорткаты.
 - QR-сканер, Send-to-TV (QR/буфер обмена, без чужого backend).

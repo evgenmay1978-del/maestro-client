@@ -2,7 +2,7 @@ package com.maestrovpn.client.core.engine
 
 import android.app.Application
 
-// Состояние движка VPN (срез 1).
+// Состояние движка VPN.
 enum class EngineStatus {
     STOPPED,
     STARTING,
@@ -10,18 +10,18 @@ enum class EngineStatus {
     ERROR,
 }
 
-// Минимальный интерфейс движка: его реализуют StubEngine (срез 1) и
-// SingBoxEngine (src/libbox/java, только когда собран libbox.aar).
-// Интерфейс намеренно не зависит от io.nekohasekai.libbox, чтобы основной
-// код компилировался без AAR.
+// Единственный движок клиента — Xray-core (срез 7, issue #8), как в Happ:
+// один нативный бинарь app/src/main/jniLibs/<abi>/libmaestro_subxhttp.so,
+// запуск дочерним процессом через нативный fork/exec (XrayNative).
+// sing-box/libbox удалён полностью: XHTTP он не поддерживает ни в одной
+// версии, а узлы Maestro и Akonit — VLESS/XHTTP/REALITY.
 //
-// Срез 2: start() больше не принимает VpnService — туннель целиком внутри
-// BoxService (она сама стартует VPNService/ProxyService и вызывает openTun);
-// движку передаётся только конфиг.
+// Интерфейс намеренно не зависит от нативного кода: XrayEngine — обычная
+// реализация, а службы VPNService/ProxyService владеют процессом ядра.
 interface VpnEngine {
     val version: String
 
-    /** Инициализация ядра (Libbox.setup). По умолчанию — no-op (StubEngine). */
+    /** Инициализация ядра. По умолчанию — no-op. */
     fun init(app: Application) {}
 
     /** Быстрая проверка конфига до сохранения/запуска (validate-before-save). */
@@ -38,36 +38,12 @@ interface VpnEngine {
     val lastError: String?
 
     /**
-     * Подготовить выбранный сервер до старта движка — например, поднять
-     * Xray-раннер для xhttp-узла или остановить его при выборе нативного
-     * узла. Возвращает false, если сервер подготовить нельзя (выбор отклонён).
-     * По умолчанию — no-op (StubEngine).
+     * Подготовить выбранный сервер до старта движка. Xray не требует
+     * подготовки: конфиг уже содержит все outbound'ы, раннера нет.
+     * По умолчанию — no-op, возвращает true.
      */
     suspend fun prepareServer(tag: String, configJson: String): Boolean = true
 
-    /** Вызывается после изменения подписок/манифеста раннера. */
+    /** Вызывается после изменения подписок. Xray не требует действий. */
     fun onSubscriptionChanged() {}
-}
-
-// Заглушка движка: sing-box (libbox.aar) не подключён в этой сборке.
-// Честно сообщает, что подключения нет, вместо имитации работы.
-class StubEngine : VpnEngine {
-    override val version: String = "stub (sing-box не подключён)"
-    override var lastError: String? = "Движок sing-box ещё не подключён в этой сборке"
-        private set
-
-    override fun validateConfig(configJson: String): Boolean {
-        // Минимум здравого смысла без ядра: непустой JSON с outbounds.
-        val trimmed = configJson.trim()
-        return trimmed.startsWith("{") && trimmed.contains("\"outbounds\"")
-    }
-
-    override fun start(configJson: String): Boolean {
-        lastError = "Движок sing-box ещё не подключён в этой сборке"
-        return false
-    }
-
-    override fun stop() {
-        // Нечего останавливать.
-    }
 }

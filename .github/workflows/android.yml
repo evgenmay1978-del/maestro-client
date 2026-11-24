@@ -8,6 +8,10 @@
 #   GRADLE_OPTS с тем же флагом + trustStore egress-CA.
 # Без этих трёх условий Gradle падает на разрешении плагинов/зависимостей.
 # Локальная сборка — для проверки; эталонная — здесь, в CI.
+#
+# Срез 7 (issue #8): job libbox удалён вместе с sing-box. NDK нужен только
+# для JNI-лаунчера (ndk-build, src/main/cpp); Xray-бинарь — готовый .so
+# в app/src/main/jniLibs.
 name: Build Maestro Client (debug)
 
 on:
@@ -17,20 +21,12 @@ on:
   workflow_dispatch:
 
 jobs:
-  libbox:
-    name: Build libbox.aar (sing-box v1.14.4)
+  app:
+    name: Build debug APK
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-
-      # Рецепт — verbatim из .github/workflows/libbox.yml репозитория MaestroVPN
-      # (GO_VERSION=go1.25.11, SINGBOX_REF=v1.14.4, NDK 28.0.13004108).
-      - name: Set up Go 1.25.11
-        uses: actions/setup-go@v5
-        with:
-          go-version: "1.25.11"
-          check-latest: false
 
       - name: Set up Java 17
         uses: actions/setup-java@v4
@@ -38,6 +34,7 @@ jobs:
           distribution: temurin
           java-version: "17"
 
+      # NDK — для ndk-build (JNI-лаунчер xrayspawn). CMake не нужен.
       - name: Install Android NDK 28.0.13004108
         run: |
           set -euo pipefail
@@ -45,83 +42,6 @@ jobs:
           yes | "$SDK/cmdline-tools/latest/bin/sdkmanager" --licenses >/dev/null || true
           "$SDK/cmdline-tools/latest/bin/sdkmanager" "ndk;28.0.13004108" "platform-tools" >/dev/null
           echo "ANDROID_NDK_HOME=${SDK}/ndk/28.0.13004108" >> "$GITHUB_ENV"
-
-      - name: Clone sing-box v1.14.4
-        run: |
-          set -euo pipefail
-          git clone --depth 1 --branch "v1.14.4" \
-            https://github.com/SagerNet/sing-box.git sing-box
-          git -C sing-box rev-parse HEAD
-
-      # Strip naive/anytls — как у Maestro (их нет в протоколах Happ, а панельные
-      # legacy-теги новому клиенту не нужны). Если Naive/AnyTLS когда-то понадобятся —
-      # убрать этот шаг, тогда обе AAR собираются с полным набором тегов.
-      - name: Strip naive/anytls from sing-box
-        run: |
-          set -euo pipefail
-          sed -i 's/"with_utls", "with_naive_outbound"/"with_utls"/' \
-            sing-box/cmd/internal/build_libbox/main.go
-          sed -i 's|// Build legacy variant (SDK 21, no naive outbound)|// Legacy variant: same tag set as the main build|' \
-            sing-box/cmd/internal/build_libbox/main.go
-          sed -i 's/legacyTags := filterTags(sharedTags, "with_naive_outbound")/legacyTags := sharedTags/' \
-            sing-box/cmd/internal/build_libbox/main.go
-          sed -i '/"github.com\/sagernet\/sing-box\/protocol\/naive"/d' sing-box/include/registry.go
-          sed -i '/"github.com\/sagernet\/sing-box\/protocol\/anytls"/d' sing-box/include/registry.go
-          sed -i '/naive.RegisterInbound(registry)/d' sing-box/include/registry.go
-          sed -i '/anytls.RegisterInbound(registry)/d' sing-box/include/registry.go
-          sed -i '/anytls.RegisterOutbound(registry)/d' sing-box/include/registry.go
-          sed -i '/_ "github.com\/sagernet\/sing-box\/protocol\/naive\/quic"/d' sing-box/include/quic.go
-          if grep -rnE 'naive|anytls' sing-box/include/registry.go \
-              sing-box/cmd/internal/build_libbox/main.go sing-box/include/quic.go; then
-            echo "::error::naive/anytls still referenced in the compiled set"; exit 1
-          fi
-          echo "naive/anytls fully removed from the compiled set"
-
-      - name: make lib_install
-        working-directory: sing-box
-        run: make lib_install
-
-      - name: make lib_android (gomobile bind -> libbox.aar)
-        working-directory: sing-box
-        run: |
-          set -euo pipefail
-          export PATH="$(go env GOPATH)/bin:$PATH"
-          # НЕ задавать ANDROID_HOME/ANDROID_SDK_ROOT через env: — ${{ env.* }}
-          # видит только переменные из блоков env workflow, а не дефолты раннера,
-          # поэтому прошлая версия затирала их пустотой и gomobile падал
-          # «FATAL android SDK not found» (run 45406431796). Раннер сам выставляет
-          # ANDROID_HOME/ANDROID_SDK_ROOT/ANDROID_NDK_HOME в окружение шага.
-          make lib_android
-          ls -lh libbox*.aar
-
-      # minSdk нового клиента — 24, поэтому берётся основная AAR (androidapi 24),
-      # а не legacy-вариант (он нужен был Maestro из-за minSdk 23).
-      - name: Upload libbox.aar
-        uses: actions/upload-artifact@v4
-        with:
-          name: libbox-aar
-          path: sing-box/libbox.aar
-          if-no-files-found: error
-
-  app:
-    name: Build debug APK
-    runs-on: ubuntu-latest
-    needs: libbox
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Set up Java 17
-        uses: actions/setup-java@v4
-        with:
-          distribution: temurin
-          java-version: "17"
-
-      - name: Download libbox.aar
-        uses: actions/download-artifact@v4
-        with:
-          name: libbox-aar
-          path: app/libs
 
       - name: Build debug APK
         run: ./gradlew assembleDebug --console=plain --stacktrace

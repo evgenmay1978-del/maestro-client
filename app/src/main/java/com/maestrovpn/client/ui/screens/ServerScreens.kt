@@ -59,7 +59,7 @@ import kotlinx.coroutines.withContext
 
 // Список ручных серверов (срез 5, issue #1): выбор активного (галочка, как
 // у подписок в срезе 3), редактирование, удаление. Выбор сервера — тот же путь,
-// что у подписок: buildConfigFor -> prepareServer (Xray-раннер для xhttp)
+// что у подписок: buildConfigFor -> prepareServer (no-op у Xray)
 // -> EngineManager.setConfig. Монета и кнопки Telegram не тронуты.
 @Composable
 fun ServersScreen(navController: NavController) {
@@ -76,7 +76,7 @@ fun ServersScreen(navController: NavController) {
         selectingTag = server.tag
         scope.launch {
             val built = withContext(Dispatchers.IO) { store.buildConfigFor(server) }
-            val configJson = built.getOrNull()?.configJson
+            val configJson = built.getOrNull()
             if (configJson == null) {
                 selectingTag = null
                 message = context.getString(

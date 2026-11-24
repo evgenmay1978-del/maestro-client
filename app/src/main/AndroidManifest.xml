@@ -42,9 +42,11 @@
             </intent-filter>
         </activity>
 
-        <!-- Ядро среза 2: службы Maestro (BoxService) вместо оболочки среза 1.
-             VPNService — полный openTun (MTU clamp 1280, маршруты, per-app списки);
-             ProxyService — режим без tun. QS-плитка — TileService Maestro. -->
+        <!-- Ядро среза 7 (issue #8): только Xray-core, службы VPNService/
+             ProxyService — новые реализации в main (тот же пакет и имена,
+             манифест не менялся). VPNService — TUN (MTU 1280, маршруты,
+             per-app списки); ProxyService — режим без tun. QS-плитка —
+             TileService. -->
         <service
             android:name=".bg.VPNService"
             android:exported="false"

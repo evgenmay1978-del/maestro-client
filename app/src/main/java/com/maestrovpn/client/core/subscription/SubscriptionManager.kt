@@ -13,14 +13,15 @@ import java.net.URL
 import java.net.UnknownHostException
 import javax.net.ssl.SSLException
 
-// Подписки (срез 3): загрузка с CDN-фолбэком + парсер + validate-before-save.
+// Подписки (срез 3, движок — Xray с среза 7, issue #8): загрузка с
+// CDN-фолбэком + парсер + validate-before-save.
 // Дефект среза 2: добавление подписки Maestro (?format=xray) падало с пустой
 // причиной — причин было две: (а) загрузка напрямую с wapmixx.ru:8911, а прямой
 // TLS туда из российских сетей висит (диагностика 23.11: TCP ok, TLS timeout);
-// (б) парсера Xray-формата не было вообще, а Libbox.checkConfig принимает
-// только sing-box JSON. Обе закрыты здесь: фолбэк на cdn-test.wapmixx.ru
-// (тот же путь и query, как MaestroSub.cdnFallbackUrl у Maestro) и парсер
-// (SubscriptionParser) с конвертацией в sing-box / запуском xhttp через раннер.
+// (б) парсера Xray-формата не было вообще. Обе закрыты здесь: фолбэк на
+// cdn-test.wapmixx.ru (тот же путь и query, как MaestroSub.cdnFallbackUrl
+// у Maestro) и парсер (SubscriptionParser) + сборка Xray-конфига
+// (XrayConfigBuilder, xhttp — обычный outbound в том же конфиге).
 // Пустая причина ошибки больше невозможна: каждый отказ несёт текст.
 @Serializable
 data class SubscriptionInfo(
@@ -46,7 +47,7 @@ sealed class DownloadResult {
 
 sealed class ImportResult {
     data class Success(
-        /** Число серверов; -1 — готовый sing-box конфиг как есть (серверы не считаются). */
+        /** Число серверов. */
         val servers: Int,
         val via: DownloadVia,
         val xhttpServers: Int,
@@ -85,9 +86,6 @@ class SubscriptionManager(
 
     private val indexFile: File
         get() = File(dir, "index.json")
-
-    private val manifestFile: File
-        get() = File(context.filesDir, "subxhttp-nodes.json")
 
     private val json = Json { ignoreUnknownKeys = true }
 
@@ -195,8 +193,8 @@ class SubscriptionManager(
     }
 
     /**
-     * Полный импорт: скачать (с фолбэком) → распарсить → собрать sing-box
-     * конфиг → проверить движком → сохранить сырое тело + манифест раннера.
+     * Полный импорт: скачать (с фолбэком) → распарсить → собрать Xray
+     * конфиг → проверить движком → сохранить сырое тело.
      * Битая подписка живой конфиг не трогает (validate-before-save).
      */
     fun importSubscription(name: String, url: String): ImportResult {
@@ -243,51 +241,40 @@ class SubscriptionManager(
     ): ImportResult {
         val parsed = SubscriptionParser.parse(content)
         if (parsed.format == SubscriptionFormat.SING_BOX_CONFIG) {
-            val raw = parsed.singBoxConfig.orEmpty()
-            if (!engine.validateConfig(raw)) {
-                return ImportResult.Failure(
-                    "Конфиг подписки не прошёл проверку движка (sing-box отклонил JSON)",
-                )
-            }
-            saveRaw(info, content, manifestJson = null)
-            return ImportResult.Success(
-                servers = -1, via = via, xhttpServers = 0, issues = emptyList(),
+            // Xray не умеет запускать sing-box JSON (у Happ его тоже нет):
+            // явный отказ вместо битого конфига. Конвертер sing-box→Xray —
+            // отдельная задача, не этот срез.
+            return ImportResult.Failure(
+                "Подписка в формате sing-box не поддерживается: " +
+                    "клиент работает только на Xray (ссылки, Xray JSON)",
             )
         }
         if (parsed.servers.isEmpty()) {
             return ImportResult.Failure(noServersReason(parsed))
         }
-        val built = SingBoxConfigBuilder.build(parsed.servers, selectedTag = null)
+        val built = XrayConfigBuilder.build(parsed.servers, selectedTag = null)
         if (!engine.validateConfig(built.configJson)) {
             return ImportResult.Failure(
                 "Собранный конфиг не прошёл проверку движка " +
-                    "(${parsed.servers.size} серверов распознано, но sing-box отклонил конфиг)",
+                    "(${parsed.servers.size} серверов распознано, но Xray отклонил конфиг)",
             )
         }
-        saveRaw(info, content, manifestJson = built.manifestJson)
+        saveRaw(info, content)
         return ImportResult.Success(
             servers = parsed.servers.size,
             via = via,
-            xhttpServers = built.runnerTags.size,
+            xhttpServers = parsed.servers.count { it.network == "xhttp" },
             issues = parsed.issues,
         )
     }
 
-    private fun saveRaw(info: SubscriptionInfo, content: String, manifestJson: String?) {
+    private fun saveRaw(info: SubscriptionInfo, content: String) {
         val target = File(dir, info.fileName)
         val tmp = File(dir, info.fileName + ".tmp")
         tmp.writeText(content)
         if (!tmp.renameTo(target)) {
             target.writeText(content)
             tmp.delete()
-        }
-        if (manifestJson != null) {
-            val manifestTmp = File(context.filesDir, manifestFile.name + ".tmp")
-            manifestTmp.writeText(manifestJson)
-            if (!manifestTmp.renameTo(manifestFile)) {
-                manifestFile.writeText(manifestJson)
-                manifestTmp.delete()
-            }
         }
         val updated = list().filterNot { it.id == info.id } + info
         saveIndex(updated)
@@ -307,7 +294,7 @@ class SubscriptionManager(
             sb.append(" (и ещё ${parsed.issues.size - 3})")
         }
         if (parsed.format == SubscriptionFormat.UNKNOWN) {
-            sb.append(". Подписка должна быть списком ссылок, base64-списком, Xray JSON или sing-box JSON")
+            sb.append(". Подписка должна быть списком ссылок, base64-списком или Xray JSON")
         }
         return sb.toString()
     }
@@ -322,20 +309,22 @@ class SubscriptionManager(
     }
 
     /**
-     * Собрать sing-box конфиг для выбора сервера. null — только при пустой
+     * Собрать Xray конфиг для выбора сервера. null — только при пустой
      * подписке; причина — в тексте исключения.
      */
     fun buildConfigFor(info: SubscriptionInfo, selectedTag: String?): Result<String> =
         runCatching {
             val parsed = servers(info)
             if (parsed.format == SubscriptionFormat.SING_BOX_CONFIG) {
-                return@runCatching parsed.singBoxConfig
-                    ?: throw IllegalStateException("пустой sing-box конфиг")
+                throw IllegalStateException(
+                    "Подписка в формате sing-box не поддерживается: " +
+                        "клиент работает только на Xray (ссылки, Xray JSON)",
+                )
             }
             if (parsed.servers.isEmpty()) {
                 throw IllegalStateException(noServersReason(parsed))
             }
-            val built = SingBoxConfigBuilder.build(parsed.servers, selectedTag)
+            val built = XrayConfigBuilder.build(parsed.servers, selectedTag)
             if (!engine.validateConfig(built.configJson)) {
                 throw IllegalStateException("Собранный конфиг не прошёл проверку движка")
             }

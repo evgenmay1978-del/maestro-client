@@ -49,7 +49,6 @@ import com.maestrovpn.client.core.engine.EngineManager
 import com.maestrovpn.client.core.engine.EngineStatus
 import com.maestrovpn.client.core.subscription.ImportResult
 import com.maestrovpn.client.core.subscription.ParsedSubscription
-import com.maestrovpn.client.core.subscription.ServerKind
 import com.maestrovpn.client.core.subscription.SubscriptionFormat
 import com.maestrovpn.client.core.subscription.SubscriptionManager
 import com.maestrovpn.client.ui.Coin
@@ -74,10 +73,14 @@ import java.util.Locale
 // действие (подключение монеткой + «Добавить подписку») визуально главнее
 // второстепенных, секции разделены подписями и отступами.
 //
+// Issue #9 (срез 7): «Буфер обмена»/«QR-код» дублировались — в блоке пустого
+// состояния и в «Быстрых действиях». В пустом состоянии остался только
+// «Добавить подписку»; clipboard/QR живут только в «Быстрых действиях».
+//
 // Дефект среза 2 (подписки): выбор подписки ставил сырое тело как конфиг,
 // что для Xray-формата всегда падало. Теперь выбор сервера — через
-// buildConfigFor (парсер + сборка sing-box конфига + проверка движком)
-// и prepareServer (поднять/остановить Xray-раннер под выбранный тег).
+// buildConfigFor (парсер + сборка Xray-конфига + проверка движком)
+// и prepareServer (Xray не требует подготовки: no-op).
 @Composable
 fun DashboardScreen(
     navController: NavController,
@@ -114,9 +117,7 @@ fun DashboardScreen(
     }
 
     // Восстановить выбор сервера после рестарта: собрать конфиг и поставить
-    // его текущим. Раннер при этом не трогаем — его поднимет restore()
-    // в applySelectedContent при старте службы. Сначала выбор подписки,
-    // затем (срез 5) — выбор ручного сервера.
+    // его текущим. Сначала выбор подписки, затем (срез 5) — выбор ручного сервера.
     LaunchedEffect(Unit) {
         if (EngineManager.currentConfigJson.isNullOrBlank()) {
             val selection = withContext(Dispatchers.IO) { manager.loadSelection() }
@@ -144,7 +145,7 @@ fun DashboardScreen(
                     val built = withContext(Dispatchers.IO) {
                         manualStore.buildConfigFor(manual)
                     }
-                    built.getOrNull()?.configJson?.let { EngineManager.setConfig(it) }
+                    built.getOrNull()?.let { EngineManager.setConfig(it) }
                 }
             }
         }
@@ -271,17 +272,6 @@ fun DashboardScreen(
                     Text(stringResource(R.string.no_server_title))
                     Text(stringResource(R.string.no_server_hint))
                     Spacer(Modifier.height(16.dp))
-                    Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                        DashboardActionButton(
-                            text = stringResource(R.string.import_clipboard),
-                            onClick = { navController.navigate(Routes.IMPORT_CLIPBOARD) },
-                        )
-                        DashboardActionButton(
-                            text = stringResource(R.string.import_qr),
-                            onClick = { navController.navigate(Routes.QR_SCAN) },
-                        )
-                    }
-                    Spacer(Modifier.height(12.dp))
                     Button(
                         modifier = Modifier.fillMaxWidth().height(56.dp),
                         onClick = { navController.navigate(Routes.SUBSCRIPTION_ADD) },
@@ -324,12 +314,12 @@ fun DashboardScreen(
                             if (parsed != null) {
                                 when {
                                     parsed.format == SubscriptionFormat.SING_BOX_CONFIG -> {
-                                        ServerRow(
-                                            tag = sub.name,
-                                            detail = "sing-box",
-                                            selected = selectedSubId == sub.id && selectedTag == sub.name,
-                                            busy = selectingTag == sub.name,
-                                            onClick = { selectServer(sub.id, sub.name) },
+                                        // Xray не запускает sing-box JSON (срез 7, issue #8):
+                                        // подписка показана, но выбрать её нельзя.
+                                        Text(
+                                            "Формат sing-box не поддерживается",
+                                            fontSize = 12.sp,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
                                         )
                                     }
                                     parsed.servers.isEmpty() -> {
@@ -344,7 +334,7 @@ fun DashboardScreen(
                                             ServerRow(
                                                 tag = server.tag,
                                                 detail = server.protocol +
-                                                    (if (server.kind == ServerKind.XHTTP_RUNNER) " · xhttp" else "") +
+                                                    (if (server.network == "xhttp") " · xhttp" else "") +
                                                     " · " + server.address,
                                                 selected = selectedSubId == sub.id && selectedTag == server.tag,
                                                 busy = selectingTag == server.tag,

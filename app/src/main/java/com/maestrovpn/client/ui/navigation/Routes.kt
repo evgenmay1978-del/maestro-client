@@ -59,7 +59,7 @@ object Routes {
 
     // Все экраны-заглушки (карта Happ §1–§8; 32 своих экрана, 27 полностью описаны).
     val stubs: List<ScreenSpec> = listOf(
-        ScreenSpec(SERVER_CUSTOM_CONFIG, "Произвольный конфиг", "карта §2.7", "полный Xray/sing-box JSON, предупреждение о несохранённом"),
+        ScreenSpec(SERVER_CUSTOM_CONFIG, "Произвольный конфиг", "карта §2.7", "полный Xray JSON, предупреждение о несохранённом"),
         ScreenSpec(SUBSCRIPTION_PROPERTIES, "Свойства подписки", "карта §3", "таймаут, User-Agent, автообновление, autoswitch"),
         ScreenSpec(SETTINGS_ADVANCED, "Продвинутые настройки", "карта §4", "порты inbound, Local DNS, sniffing, mux, фрагментация, шумы"),
         ScreenSpec(SETTINGS_TUNNEL, "Настройки туннеля", "карта §4", "TUN MTU, IP-тип, Fake DNS, Xray TUN"),

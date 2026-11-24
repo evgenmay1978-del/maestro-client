@@ -7,7 +7,14 @@ import android.service.quicksettings.Tile
 import android.service.quicksettings.TileService
 import androidx.annotation.RequiresApi
 import com.maestrovpn.client.constant.Status
+import com.maestrovpn.client.core.engine.EngineManager
 
+// Плитка быстрых настроек (срез 2, переписана в срезе 7): переключение через
+// EngineManager. Конфиг при тапе берётся из памяти или из персистентного
+// файла xray-config.json — после перезагрузки устройства плитка тоже работает.
+// Ограничение: тап не может показать системный диалог разрешения VPN —
+// если разрешение не выдано, старт упадёт с алертом; тогда откройте
+// приложение и подключитесь кнопкой один раз.
 @RequiresApi(24)
 class TileService :
     TileService(),
@@ -63,10 +70,10 @@ class TileService :
 
     private fun toggleService() {
         when (connection.status) {
-            Status.Stopped -> BoxService.start()
+            Status.Stopped -> EngineManager.startService()
             // The tile shows ACTIVE during Starting — a tap must be able to stop a stuck connect
             // (stop-from-Starting is supported since the 1.0.94 fix), not be silently dropped.
-            Status.Started, Status.Starting -> BoxService.stop()
+            Status.Started, Status.Starting -> EngineManager.stopService()
             else -> {}
         }
     }

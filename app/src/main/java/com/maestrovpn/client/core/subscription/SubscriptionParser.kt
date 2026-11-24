@@ -2,61 +2,52 @@ package com.maestrovpn.client.core.subscription
 
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
-import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.add
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.contentOrNull
-import kotlinx.serialization.json.intOrNull
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
-import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
 import java.net.URI
 import java.net.URLDecoder
 
-// Парсер подписок (срез 3). Чистый Kotlin, без Android API — проверяется на обычной JVM
-// (см. отчёт среза 3) и валидируется настоящим sing-box 1.14.4 через `sing-box check`.
+// Парсер подписок (срез 3, переведён на Xray-only ядро в срезе 7).
+// Чистый Kotlin, без Android API — проверяется на обычной JVM
+// (см. отчёт среза 7) и валидируется настоящим `xray run -test`.
 //
-// Что понимает (таблица соответствия §3.10):
+// Единственное ядро клиента — Xray-core. Парсер отдаёт готовые Xray
+// outbound'ы как есть, без конвертации в другой формат:
 //  - полный Xray JSON: массив конфигов (так отдаёт панель в ?format=xray —
 //    WhiteListCombinedXrayJSONSubscription) и одиночный конфиг;
-//  - share-ссылки: vless / vmess / trojan / ss / socks / hysteria2 / tuic;
+//  - share-ссылки: vless / vmess / trojan / ss / socks / hysteria2;
 //  - base64-списки ссылок (как отдаёт панель в ?format=links);
 //  - смешанный формат: ссылки + строки маршрутизации/метаданные (не-ссылки
 //    пропускаются, считаются в ignoredLines);
-//  - готовый sing-box JSON — проходит как есть (формат SING_BOX_CONFIG).
-// Что НЕ понимает (честно, с причиной в issues):
-//  - xhttp-транспорт в sing-box: sing-box 1.14.4 его не знает
-//    (`sing-box check`: "unknown transport type: xhttp") — такие узлы идут
-//    через Xray-раннер (kind = XHTTP_RUNNER), а не в sing-box напрямую;
-//  - WireGuard (в sing-box 1.13+ это endpoints, не outbound), TCP HTTP-заголовок,
-//    KCP, плагины Shadowsocks, шифрованные подписки crypt/crypt5.
+//  - готовый JSON конфиг другого ядра — только ОПРЕДЕЛЯЕТСЯ как формат
+//    SING_BOX_CONFIG (поле singBoxConfig); исполнять его нечем — движок
+//    отклоняет такие подписки позже (не часть парсера).
+// Что НЕ понимается (честно, с причиной в issues):
+//  - WireGuard-ссылки и TUIC-ссылки: Xray-core не реализует TUIC ни в одной
+//    версии, а WireGuard-ссылки не несут полных параметров Xray wireguard
+//    outbound'а — обе отклоняются с явной причиной;
+//  - kcp-транспорт в ссылках, TCP HTTP-заголовок, плагины Shadowsocks,
+//    шифрованные подписки crypt/crypt5.
 // В сообщениях об ошибках НИКОГДА не печатаются полные ссылки/токены/пароли —
 // только схема + подпись + причина.
-enum class ServerKind {
-    /** Обычный sing-box outbound (конвертирован из Xray/ссылки). */
-    NATIVE,
-
-    /** Xray-узел (xhttp): идёт через Xray-раннер, в конфиге — SOCKS-стаб 127.0.0.1:20801+. */
-    XHTTP_RUNNER,
-}
-
 data class ParsedServer(
     val tag: String,
     val label: String,
     val protocol: String,
-    val kind: ServerKind,
-    /** Хост точки входа (без учётных данных) — для резолва/DIRECT-правил раннера. */
+    /** Хост точки входа (без учётных данных) — для подписи и диагностики. */
     val address: String,
-    /** sing-box outbound, только для NATIVE. */
-    val singBoxOutbound: JsonObject?,
-    /** Xray outbound как есть, только для XHTTP_RUNNER (параметры раннера). */
-    val xrayOutbound: JsonObject?,
-    /** sing-box endpoint (только WireGuard: в 1.14 это endpoint, не outbound). */
-    val singBoxEndpoint: JsonObject? = null,
+    /** Готовый Xray outbound (tag добавит XrayConfigBuilder). */
+    val xrayOutbound: JsonObject,
+    /** Транспорт: "tcp" | "ws" | "grpc" | "httpupgrade" | "xhttp" | "kcp" |
+     *  "hysteria" | "wireguard" | ... — для подписи "· xhttp" в UI. */
+    val network: String,
 )
 
 data class ParseIssue(
@@ -79,7 +70,7 @@ data class ParsedSubscription(
     val servers: List<ParsedServer>,
     val issues: List<ParseIssue>,
     val ignoredLines: Int,
-    /** Готовый sing-box конфиг, только при format == SING_BOX_CONFIG. */
+    /** Готовый конфиг другого ядра, только при format == SING_BOX_CONFIG. */
     val singBoxConfig: String? = null,
 )
 
@@ -136,7 +127,8 @@ object SubscriptionParser {
             )
         }
         val first = outbounds.firstOrNull() as? JsonObject
-        // Xray outbound узнаётся по "protocol"/"streamSettings", sing-box — по "type".
+        // Xray outbound узнаётся по "protocol"/"streamSettings",
+        // конфиг другого ядра — по "type".
         val isXray = first != null &&
             (first.containsKey("streamSettings") || first.containsKey("protocol"))
         return if (isXray) {
@@ -183,7 +175,12 @@ object SubscriptionParser {
         )
     }
 
-    // ---------- Xray-конфиг ----------
+    // ---------- Xray-конфиг (passthrough, без конвертации) ----------
+
+    /** Протоколы, которые считаются прокси-узлами (остальные — freedom/block/dns — не узлы). */
+    private val PROXY_PROTOCOLS = setOf(
+        "vless", "vmess", "trojan", "shadowsocks", "socks", "http", "hysteria", "wireguard",
+    )
 
     /** Разбирает один полный Xray-конфиг (элемент массива ?format=xray). */
     private fun parseXrayConfig(
@@ -196,15 +193,18 @@ object SubscriptionParser {
         val proxy = outbounds.firstOrNull { outbound ->
             val protocol = (outbound["protocol"] as? JsonPrimitive)?.contentOrNull.orEmpty()
                 .lowercase()
-            protocol in setOf("vless", "vmess", "trojan", "shadowsocks", "socks")
+            protocol in PROXY_PROTOCOLS
         } ?: return null to ParseIssue(
             hint = remarks.ifBlank { "Xray" }.take(80),
-            reason = "в конфиге нет прокси-outbound (vless/vmess/trojan/ss/socks)",
+            reason = "в конфиге нет прокси-outbound (vless/vmess/trojan/ss/socks/hysteria/wireguard)",
         )
         return parseXrayOutbound(proxy, remarks, tags)
     }
 
-    /** Конвертирует один Xray outbound в ParsedServer (NATIVE или XHTTP_RUNNER). */
+    /**
+     * Xray outbound как есть: passthrough для ВСЕХ сетей, включая xhttp —
+     * ни одно поле не переписывается (tag проставит XrayConfigBuilder).
+     */
     private fun parseXrayOutbound(
         outbound: JsonObject,
         remarks: String,
@@ -213,36 +213,26 @@ object SubscriptionParser {
         val protocol = (outbound["protocol"] as? JsonPrimitive)?.contentOrNull.orEmpty().lowercase()
         val stream = outbound["streamSettings"] as? JsonObject
         val network = (stream?.get("network") as? JsonPrimitive)?.contentOrNull
-            ?.lowercase().orEmpty().ifBlank { "tcp" }
-        val security = (stream?.get("security") as? JsonPrimitive)?.contentOrNull
-            ?.lowercase().orEmpty().ifBlank { "none" }
-        val label = remarks.ifBlank { "server" }
-        val hint = label.take(80)
-        if (network == "xhttp") {
-            val settings = outbound["settings"] as? JsonObject
-            val address = xrayAddress(protocol, settings).orEmpty()
-            if (address.isEmpty()) {
-                return null to ParseIssue(hint, "xhttp-узел без адреса")
+            ?.lowercase().orEmpty().ifBlank {
+                // У протоколов без streamSettings сеть — сам протокол.
+                when (protocol) {
+                    "hysteria" -> "hysteria"
+                    "wireguard" -> "wireguard"
+                    else -> "tcp"
+                }
             }
-            val tag = tags.unique(label)
-            return ParsedServer(
-                tag = tag, label = label, protocol = protocol,
-                kind = ServerKind.XHTTP_RUNNER, address = address,
-                singBoxOutbound = null, xrayOutbound = outbound,
-            ) to null
+        val label = remarks.ifBlank {
+            (outbound["tag"] as? JsonPrimitive)?.contentOrNull.orEmpty()
+        }.ifBlank { "server" }
+        val hint = label.take(80)
+        val address = xrayAddress(protocol, outbound["settings"] as? JsonObject).orEmpty()
+        if (address.isEmpty()) {
+            return null to ParseIssue(hint, "узел без адреса")
         }
-        val converted = convertXrayOutbound(outbound, protocol, network, security, label)
-            ?: return null to ParseIssue(
-                hint,
-                "не поддерживается: $protocol/$network/$security",
-            )
-        val (singBox, address) = converted
         val tag = tags.unique(label)
         return ParsedServer(
             tag = tag, label = label, protocol = protocol,
-            kind = ServerKind.NATIVE, address = address,
-            singBoxOutbound = singBox,
-            xrayOutbound = null,
+            address = address, xrayOutbound = outbound, network = network,
         ) to null
     }
 
@@ -251,184 +241,18 @@ object SubscriptionParser {
         val vnext = (settings["vnext"] as? JsonArray)?.firstOrNull() as? JsonObject
         if (vnext != null) return (vnext["address"] as? JsonPrimitive)?.contentOrNull
         val servers = (settings["servers"] as? JsonArray)?.firstOrNull() as? JsonObject
-        return (servers?.get("address") as? JsonPrimitive)?.contentOrNull
-    }
-
-    /**
-     * Xray outbound -> sing-box outbound. Возвращает null, когда конвертация
-     * невозможна (тогда caller делает issue с протоколом/сетью/защитой).
-     */
-    private fun convertXrayOutbound(
-        outbound: JsonObject,
-        protocol: String,
-        network: String,
-        security: String,
-        label: String,
-    ): Pair<JsonObject, String>? {
-        val settings = outbound["settings"] as? JsonObject ?: return null
-        val stream = outbound["streamSettings"] as? JsonObject
-        // buildTransport/buildTls возвращают null и для «не нужен», и для
-        // «не поддерживается» — поэтому сначала проверяем допустимость значений.
-        if (network !in setOf("tcp", "ws", "grpc", "http")) return null
-        if (security !in setOf("none", "tls", "reality")) return null
-        val transport = buildTransport(network, stream)
-        val tls = buildTls(security, stream)
-        // tlsSettings/realitySettings отсутствуют при security != none —
-        // молча снимать шифрование нельзя, отклоняем узел.
-        if (security != "none" && tls == null) return null
-        val mux = buildMux(outbound["mux"] as? JsonObject)
-        val address: String
-        val base: JsonObject = when (protocol) {
-            "vless" -> {
-                val vnext = (settings["vnext"] as? JsonArray)?.firstOrNull() as? JsonObject
-                    ?: return null
-                val user = (vnext["users"] as? JsonArray)?.firstOrNull() as? JsonObject
-                    ?: return null
-                val id = (user["id"] as? JsonPrimitive)?.contentOrNull.orEmpty()
-                if (id.isEmpty()) return null
-                address = (vnext["address"] as? JsonPrimitive)?.contentOrNull.orEmpty()
-                val port = (vnext["port"] as? JsonPrimitive)?.intOrNull ?: return null
-                val flow = (user["flow"] as? JsonPrimitive)?.contentOrNull.orEmpty()
-                buildJsonObject {
-                    put("type", "vless")
-                    put("server", address)
-                    put("server_port", port)
-                    put("uuid", id)
-                    if (flow.isNotEmpty()) put("flow", flow)
-                }
-            }
-            "vmess" -> {
-                val vnext = (settings["vnext"] as? JsonArray)?.firstOrNull() as? JsonObject
-                    ?: return null
-                val user = (vnext["users"] as? JsonArray)?.firstOrNull() as? JsonObject
-                    ?: return null
-                val id = (user["id"] as? JsonPrimitive)?.contentOrNull.orEmpty()
-                if (id.isEmpty()) return null
-                address = (vnext["address"] as? JsonPrimitive)?.contentOrNull.orEmpty()
-                val port = (vnext["port"] as? JsonPrimitive)?.intOrNull ?: return null
-                val alterId = (user["alterId"] as? JsonPrimitive)?.intOrNull ?: 0
-                val sec = (user["security"] as? JsonPrimitive)?.contentOrNull
-                    ?.lowercase().orEmpty().ifBlank { "auto" }
-                if (sec !in setOf("auto", "aes-128-gcm", "chacha20-poly1305", "none", "zero")) {
-                    return null
-                }
-                buildJsonObject {
-                    put("type", "vmess")
-                    put("server", address)
-                    put("server_port", port)
-                    put("uuid", id)
-                    put("security", sec)
-                    if (alterId != 0) put("alter_id", alterId)
-                }
-            }
-            "trojan" -> {
-                val server = (settings["servers"] as? JsonArray)?.firstOrNull() as? JsonObject
-                    ?: return null
-                val password = (server["password"] as? JsonPrimitive)?.contentOrNull.orEmpty()
-                if (password.isEmpty()) return null
-                address = (server["address"] as? JsonPrimitive)?.contentOrNull.orEmpty()
-                val port = (server["port"] as? JsonPrimitive)?.intOrNull ?: return null
-                buildJsonObject {
-                    put("type", "trojan")
-                    put("server", address)
-                    put("server_port", port)
-                    put("password", password)
-                }
-            }
-            "shadowsocks" -> {
-                val server = (settings["servers"] as? JsonArray)?.firstOrNull() as? JsonObject
-                    ?: return null
-                if (server.containsKey("plugin")) return null
-                val method = (server["method"] as? JsonPrimitive)?.contentOrNull.orEmpty()
-                val password = (server["password"] as? JsonPrimitive)?.contentOrNull.orEmpty()
-                if (method.isEmpty() || password.isEmpty()) return null
-                address = (server["address"] as? JsonPrimitive)?.contentOrNull.orEmpty()
-                val port = (server["port"] as? JsonPrimitive)?.intOrNull ?: return null
-                buildJsonObject {
-                    put("type", "shadowsocks")
-                    put("server", address)
-                    put("server_port", port)
-                    put("method", method)
-                    put("password", password)
-                }
-            }
-            "socks" -> {
-                val server = (settings["servers"] as? JsonArray)?.firstOrNull() as? JsonObject
-                    ?: return null
-                address = (server["address"] as? JsonPrimitive)?.contentOrNull.orEmpty()
-                val port = (server["port"] as? JsonPrimitive)?.intOrNull ?: return null
-                val user = (server["users"] as? JsonArray)?.firstOrNull() as? JsonObject
-                buildJsonObject {
-                    put("type", "socks")
-                    put("server", address)
-                    put("server_port", port)
-                    put("version", "5")
-                    if (user != null) {
-                        (user["user"] as? JsonPrimitive)?.contentOrNull?.let { put("username", it) }
-                        (user["pass"] as? JsonPrimitive)?.contentOrNull?.let { put("password", it) }
-                    }
-                }
-            }
-            else -> return null
+        if (servers != null) return (servers["address"] as? JsonPrimitive)?.contentOrNull
+        if (protocol == "hysteria") {
+            return (settings["address"] as? JsonPrimitive)?.contentOrNull
         }
-        if (address.isBlank()) return null
-        var result = base
-        if (tls != null) result = JsonObject(result + ("tls" to tls))
-        if (transport != null) result = JsonObject(result + ("transport" to transport))
-        if (mux != null) result = JsonObject(result + ("multiplex" to mux))
-        return result to address
-    }
-
-    /** Xray streamSettings -> sing-box tls. null = неизвестная защита. */
-    private fun buildTls(security: String, stream: JsonObject?): JsonObject? {
-        if (security == "none") return null
-        if (stream == null) return null
-        return when (security) {
-            "tls" -> {
-                val tls = stream["tlsSettings"] as? JsonObject ?: return null
-                val serverName = (tls["serverName"] as? JsonPrimitive)?.contentOrNull.orEmpty()
-                val alpn = (tls["alpn"] as? JsonArray)
-                    ?.mapNotNull { (it as? JsonPrimitive)?.contentOrNull }.orEmpty()
-                val fp = (tls["fingerprint"] as? JsonPrimitive)?.contentOrNull.orEmpty()
-                buildJsonObject {
-                    put("enabled", true)
-                    if (serverName.isNotEmpty()) put("server_name", serverName)
-                    if (alpn.isNotEmpty()) {
-                        put("alpn", buildJsonArray { alpn.forEach { add(it) } })
-                    }
-                    if (fp.isNotEmpty() && fp in UTLS_FINGERPRINTS) {
-                        put("utls", buildJsonObject {
-                            put("enabled", true)
-                            put("fingerprint", fp)
-                        })
-                    }
-                }
-            }
-            "reality" -> {
-                val reality = stream["realitySettings"] as? JsonObject ?: return null
-                val serverName = (reality["serverName"] as? JsonPrimitive)?.contentOrNull.orEmpty()
-                val fp = (reality["fingerprint"] as? JsonPrimitive)?.contentOrNull.orEmpty()
-                val publicKey = (reality["publicKey"] as? JsonPrimitive)?.contentOrNull.orEmpty()
-                val shortId = (reality["shortId"] as? JsonPrimitive)?.contentOrNull.orEmpty()
-                if (serverName.isEmpty() || publicKey.isEmpty()) return null
-                buildJsonObject {
-                    put("enabled", true)
-                    put("server_name", serverName)
-                    if (fp.isNotEmpty() && fp in UTLS_FINGERPRINTS) {
-                        put("utls", buildJsonObject {
-                            put("enabled", true)
-                            put("fingerprint", fp)
-                        })
-                    }
-                    put("reality", buildJsonObject {
-                        put("enabled", true)
-                        put("public_key", publicKey)
-                        if (shortId.isNotEmpty()) put("short_id", shortId)
-                    })
-                }
-            }
-            else -> null
+        if (protocol == "wireguard") {
+            val peer = (settings["peers"] as? JsonArray)?.firstOrNull() as? JsonObject
+            val endpoint = (peer?.get("endpoint") as? JsonPrimitive)?.contentOrNull.orEmpty()
+            // endpoint — "host:port" (или "[v6]:port").
+            return endpoint.substringBeforeLast(":").trim('[', ']')
+                .ifEmpty { null }
         }
+        return null
     }
 
     private val UTLS_FINGERPRINTS = setOf(
@@ -436,73 +260,7 @@ object SubscriptionParser {
         "random", "randomized",
     )
 
-    /**
-     * Xray network -> sing-box transport. null = транспорт не поддерживается
-     * sing-box (kcp и т.п.); xhttp здесь не встречается — он отсекается раньше
-     * в парсер Xray outbound и идёт в раннер.
-     */
-    private fun buildTransport(network: String, stream: JsonObject?): JsonObject? {
-        return when (network) {
-            "tcp" -> {
-                val tcp = stream?.get("tcpSettings") as? JsonObject
-                val header = tcp?.get("header") as? JsonObject
-                val headerType = (header?.get("type") as? JsonPrimitive)?.contentOrNull
-                    ?.lowercase().orEmpty()
-                if (headerType.isNotEmpty() && headerType != "none") return null
-                null // обычный TCP — транспорт не нужен
-            }
-            "ws" -> {
-                val ws = stream?.get("wsSettings") as? JsonObject
-                val path = (ws?.get("path") as? JsonPrimitive)?.contentOrNull.orEmpty()
-                    .ifBlank { "/" }
-                val headers = ws?.get("headers") as? JsonObject
-                val host = (headers?.get("Host") as? JsonPrimitive)?.contentOrNull.orEmpty()
-                buildJsonObject {
-                    put("type", "ws")
-                    put("path", path)
-                    if (host.isNotEmpty()) {
-                        put("headers", buildJsonObject { put("Host", host) })
-                    }
-                }
-            }
-            "grpc" -> {
-                val grpc = stream?.get("grpcSettings") as? JsonObject
-                val serviceName = (grpc?.get("serviceName") as? JsonPrimitive)?.contentOrNull
-                    .orEmpty()
-                buildJsonObject {
-                    put("type", "grpc")
-                    if (serviceName.isNotEmpty()) put("service_name", serviceName)
-                }
-            }
-            "http" -> {
-                val http = stream?.get("httpSettings") as? JsonObject
-                val host = (http?.get("host") as? JsonPrimitive)?.contentOrNull.orEmpty()
-                val path = (http?.get("path") as? JsonPrimitive)?.contentOrNull.orEmpty()
-                    .ifBlank { "/" }
-                buildJsonObject {
-                    put("type", "http")
-                    if (host.isNotEmpty()) put("host", host)
-                    put("path", path)
-                }
-            }
-            "xhttp" -> null // обрабатывается отдельно (раннер), сюда не доходит
-            else -> null
-        }
-    }
-
-    private fun buildMux(mux: JsonObject?): JsonObject? {
-        if (mux == null) return null
-        val enabled = (mux["enabled"] as? JsonPrimitive)?.contentOrNull == "true"
-        if (!enabled) return null
-        val concurrency = (mux["concurrency"] as? JsonPrimitive)?.intOrNull ?: 0
-        return buildJsonObject {
-            put("enabled", true)
-            put("protocol", "smux")
-            if (concurrency > 0) put("max_connections", concurrency)
-        }
-    }
-
-    // ---------- Текстовые строки (share-ссылки) ----------
+    // ---------- Текстовые строки (share-ссылки -> Xray outbound напрямую) ----------
 
     private fun parseLines(text: String): ParsedSubscription {
         val servers = ArrayList<ParsedServer>()
@@ -547,7 +305,8 @@ object SubscriptionParser {
         val hint = scheme + "://…"
         return when (scheme) {
             "wireguard", "wg" -> null to ParseIssue(
-                hint, "WireGuard — не поддерживается в этой версии",
+                hint, "WireGuard-ссылки не поддерживаются: в ссылке нет полных " +
+                    "параметров Xray wireguard outbound'а (ключи, адреса, пиры)",
             )
             "vmess" -> parseVmessLink(line, tags)
             else -> {
@@ -608,79 +367,30 @@ object SubscriptionParser {
         if (encryption != "none") {
             return null to ParseIssue(hint, "encryption=$encryption не поддерживается")
         }
-        if (type == "xhttp") {
-            // Xray outbound для раннера: собираем из параметров ссылки.
-            val xray = buildXrayVlessOutbound(uuid, query, host, port, label)
-            return ParsedServer(
-                tag = tag, label = label, protocol = "vless",
-                kind = ServerKind.XHTTP_RUNNER, address = host,
-                singBoxOutbound = null, xrayOutbound = xray,
-            ) to null
-        }
-        val outbound = convertLinkToSingBox(
-            protocol = "vless", host = host, port = port,
-            uuid = uuid, flow = query["flow"].orEmpty(),
-            security = security, type = type, query = query,
-        ) ?: return null to ParseIssue(hint, "не поддерживается: vless/$type/$security")
-        return ParsedServer(
-            tag = tag, label = label, protocol = "vless",
-            kind = ServerKind.NATIVE, address = host,
-            singBoxOutbound = outbound, xrayOutbound = null,
-        ) to null
-    }
-
-    /** Собирает Xray outbound для xhttp-узла из параметров vless-ссылки. */
-    private fun buildXrayVlessOutbound(
-        uuid: String,
-        query: Map<String, String>,
-        host: String,
-        port: Int,
-        label: String,
-    ): JsonObject {
-        val sni = query["sni"].orEmpty()
-        val fp = query["fp"].orEmpty()
-        val alpn = query["alpn"].orEmpty()
-        return buildJsonObject {
-            put("tag", label)
-            put("protocol", "vless")
-            put("settings", buildJsonObject {
-                put("vnext", buildJsonArray {
-                    add(buildJsonObject {
-                        put("address", host)
-                        put("port", port)
-                        put("users", buildJsonArray {
-                            add(buildJsonObject {
-                                put("id", uuid)
-                                put("encryption", "none")
-                                val flow = query["flow"].orEmpty()
-                                if (flow.isNotEmpty()) put("flow", flow)
-                            })
+        val settings = buildJsonObject {
+            put("vnext", buildJsonArray {
+                add(buildJsonObject {
+                    put("address", host)
+                    put("port", port)
+                    put("users", buildJsonArray {
+                        add(buildJsonObject {
+                            put("id", uuid)
+                            put("encryption", "none")
+                            val flow = query["flow"].orEmpty()
+                            if (flow.isNotEmpty()) put("flow", flow)
                         })
                     })
                 })
             })
-            put("streamSettings", buildJsonObject {
-                put("network", "xhttp")
-                put("security", "tls")
-                put("tlsSettings", buildJsonObject {
-                    if (sni.isNotEmpty()) put("serverName", sni)
-                    if (alpn.isNotEmpty()) {
-                        put("alpn", buildJsonArray {
-                            alpn.split(",").forEach { add(it.trim()) }
-                        })
-                    }
-                    if (fp.isNotEmpty()) put("fingerprint", fp)
-                })
-                val xPath = query["path"].orEmpty()
-                val xHost = query["host"].orEmpty()
-                val mode = query["mode"].orEmpty()
-                put("xhttpSettings", buildJsonObject {
-                    if (xHost.isNotEmpty()) put("host", xHost)
-                    if (xPath.isNotEmpty()) put("path", xPath)
-                    if (mode.isNotEmpty()) put("mode", mode)
-                })
-            })
         }
+        val outbound = buildLinkOutbound(
+            protocol = "vless", settings = settings,
+            network = type, security = security, query = query, host = host,
+        ) ?: return null to ParseIssue(hint, "не поддерживается: vless/$type/$security")
+        return ParsedServer(
+            tag = tag, label = label, protocol = "vless",
+            address = host, xrayOutbound = outbound, network = type,
+        ) to null
     }
 
     private fun parseTrojanUri(
@@ -694,46 +404,30 @@ object SubscriptionParser {
         val hint = "trojan://…"
         val password = uri.userInfo.orEmpty().substringBefore(":").let { urlDecode(it) }
         if (password.isEmpty()) return null to ParseIssue(hint, "нет пароля")
-        val security = (query["security"] ?: "tls").lowercase()
+        // Trojan без TLS не работает — security ниже всегда даёт tlsSettings,
+        // кроме явно заданного reality.
+        val security = if ((query["security"] ?: "tls").lowercase() == "reality") {
+            "reality"
+        } else {
+            "tls"
+        }
         val type = (query["type"] ?: "tcp").lowercase()
-        if (type == "xhttp") {
-            return null to ParseIssue(hint, "trojan/xhttp — не поддерживается")
-        }
-        // linkTransport возвращает null и для «не нужен» (tcp), и для
-        // «не поддерживается» — сначала проверяем допустимость типа.
-        if (type !in setOf("tcp", "ws", "grpc", "http")) {
-            return null to ParseIssue(hint, "не поддерживается: trojan/$type/$security")
-        }
-        val transport = linkTransport(type, query)
-        val sni = query["sni"].orEmpty().ifBlank { host }
-        val alpn = query["alpn"].orEmpty()
-        val fp = query["fp"].orEmpty()
-        val allowInsecure = query["allowInsecure"] == "1" || query["insecure"] == "1"
-        val outbound = buildJsonObject {
-            put("type", "trojan")
-            put("server", host)
-            put("server_port", port)
-            put("password", password)
-            put("tls", buildJsonObject {
-                put("enabled", true)
-                put("server_name", sni)
-                if (alpn.isNotEmpty()) {
-                    put("alpn", buildJsonArray { alpn.split(",").forEach { add(it.trim()) } })
-                }
-                if (fp.isNotEmpty() && fp in UTLS_FINGERPRINTS) {
-                    put("utls", buildJsonObject {
-                        put("enabled", true)
-                        put("fingerprint", fp)
-                    })
-                }
-                if (allowInsecure) put("insecure", true)
+        val settings = buildJsonObject {
+            put("servers", buildJsonArray {
+                add(buildJsonObject {
+                    put("address", host)
+                    put("port", port)
+                    put("password", password)
+                })
             })
-            if (transport != null) put("transport", transport)
         }
+        val outbound = buildLinkOutbound(
+            protocol = "trojan", settings = settings,
+            network = type, security = security, query = query, host = host,
+        ) ?: return null to ParseIssue(hint, "не поддерживается: trojan/$type/$security")
         return ParsedServer(
             tag = tag, label = label, protocol = "trojan",
-            kind = ServerKind.NATIVE, address = host,
-            singBoxOutbound = outbound, xrayOutbound = null,
+            address = host, xrayOutbound = outbound, network = type,
         ) to null
     }
 
@@ -792,16 +486,21 @@ object SubscriptionParser {
             return null to ParseIssue(hint, "не удалось разобрать method:password@host")
         }
         val outbound = buildJsonObject {
-            put("type", "shadowsocks")
-            put("server", realHost)
-            put("server_port", realPort)
-            put("method", method)
-            put("password", password)
+            put("protocol", "shadowsocks")
+            put("settings", buildJsonObject {
+                put("servers", buildJsonArray {
+                    add(buildJsonObject {
+                        put("address", realHost)
+                        put("port", realPort)
+                        put("method", method)
+                        put("password", password)
+                    })
+                })
+            })
         }
         return ParsedServer(
             tag = tag, label = label, protocol = "ss",
-            kind = ServerKind.NATIVE, address = realHost,
-            singBoxOutbound = outbound, xrayOutbound = null,
+            address = realHost, xrayOutbound = outbound, network = "tcp",
         ) to null
     }
 
@@ -838,17 +537,27 @@ object SubscriptionParser {
         }
         if (realHost.isEmpty()) return null to ParseIssue(hint, "нет хоста")
         val outbound = buildJsonObject {
-            put("type", "socks")
-            put("server", realHost)
-            put("server_port", realPort)
-            put("version", "5")
-            if (username != null) put("username", username)
-            if (password != null) put("password", password)
+            put("protocol", "socks")
+            put("settings", buildJsonObject {
+                put("servers", buildJsonArray {
+                    add(buildJsonObject {
+                        put("address", realHost)
+                        put("port", realPort)
+                        if (username != null || password != null) {
+                            put("users", buildJsonArray {
+                                add(buildJsonObject {
+                                    if (username != null) put("user", username)
+                                    if (password != null) put("pass", password)
+                                })
+                            })
+                        }
+                    })
+                })
+            })
         }
         return ParsedServer(
             tag = tag, label = label, protocol = "socks",
-            kind = ServerKind.NATIVE, address = realHost,
-            singBoxOutbound = outbound, xrayOutbound = null,
+            address = realHost, xrayOutbound = outbound, network = "tcp",
         ) to null
     }
 
@@ -864,36 +573,97 @@ object SubscriptionParser {
         val password = uri.userInfo.orEmpty().substringBefore(":").let { urlDecode(it) }
         if (password.isEmpty()) return null to ParseIssue(hint, "нет пароля")
         val sni = query["sni"].orEmpty().ifBlank { host }
-        val insecure = query["insecure"] == "1"
+        val insecure = query["insecure"] == "1" || query["insecure"] == "true"
         val obfs = query["obfs"].orEmpty()
         val obfsPassword = query["obfs-password"].orEmpty()
         if (obfs.isNotEmpty() && obfs != "salamander") {
             return null to ParseIssue(hint, "obfs=$obfs не поддерживается")
         }
+        // up/down: "100", "100mbps", "100 mbps" -> "100mbps" (форма Xray-core).
+        val up = normalizeMbps(query["up"] ?: query["upmbps"].orEmpty())
+        val down = normalizeMbps(query["down"] ?: query["downmbps"].orEmpty())
+        val alpn = query["alpn"].orEmpty()
+        val fp = query["fp"].orEmpty()
         val outbound = buildJsonObject {
-            put("type", "hysteria2")
-            put("server", host)
-            put("server_port", port)
-            put("password", password)
-            put("tls", buildJsonObject {
-                put("enabled", true)
-                put("server_name", sni)
-                if (insecure) put("insecure", true)
+            // Xray: протокол "hysteria", version 2 — это Hysteria2.
+            put("protocol", "hysteria")
+            put("settings", buildJsonObject {
+                put("version", 2)
+                put("address", host)
+                put("port", port)
             })
-            if (obfs == "salamander" && obfsPassword.isNotEmpty()) {
-                put("obfs", buildJsonObject {
-                    put("type", "salamander")
-                    put("password", obfsPassword)
+            put("streamSettings", buildJsonObject {
+                put("network", "hysteria")
+                put("security", "tls")
+                put("tlsSettings", buildJsonObject {
+                    put("serverName", sni)
+                    // Hysteria2 — поверх QUIC/HTTP3.
+                    put("alpn", buildJsonArray {
+                        if (alpn.isNotEmpty()) {
+                            alpn.split(",").forEach { add(it.trim()) }
+                        } else {
+                            add("h3")
+                        }
+                    })
+                    if (fp.isNotEmpty() && fp in UTLS_FINGERPRINTS) put("fingerprint", fp)
+                    if (insecure) put("allowInsecure", true)
                 })
-            }
+                put("hysteriaSettings", buildJsonObject {
+                    put("version", 2)
+                    put("auth", password)
+                })
+                // Скорости и Port Hopping — НЕ поля hysteriaSettings (Xray
+                // 26.11.9 молча игнорирует неизвестные ключи там): они живут
+                // в streamSettings.finalmask — brutalUp/brutalDown в
+                // quicParams, udphop — первой записью в finalmask.udp.
+                val finalMask = buildJsonObject {
+                    if (up != null || down != null) {
+                        put("quicParams", buildJsonObject {
+                            if (up != null) put("brutalUp", up)
+                            if (down != null) put("brutalDown", down)
+                        })
+                    }
+                }
+                if (finalMask.isNotEmpty()) put("finalmask", finalMask)
+                if (obfs == "salamander" && obfsPassword.isNotEmpty()) {
+                    put("udpmasks", buildJsonArray {
+                        add(buildJsonObject {
+                            put("type", "salamander")
+                            put("settings", buildJsonObject {
+                                put("password", obfsPassword)
+                            })
+                        })
+                    })
+                }
+            })
         }
         return ParsedServer(
             tag = tag, label = label, protocol = "hysteria2",
-            kind = ServerKind.NATIVE, address = host,
-            singBoxOutbound = outbound, xrayOutbound = null,
+            address = host, xrayOutbound = outbound, network = "hysteria",
         ) to null
     }
 
+    /** "100" / "100mbps" / "100 mbps" -> "100mbps", null — не число. */
+    private fun normalizeMbps(text: String): String? {
+        val t = text.trim().lowercase().replace(" ", "")
+            .removeSuffix("mbps").removeSuffix("gbps")
+        val value = t.toDoubleOrNull() ?: return null
+        if (value <= 0) return null
+        val mbps = if (text.trim().lowercase().replace(" ", "").endsWith("gbps")) {
+            (value * 1000).toInt()
+        } else {
+            value.toInt()
+        }
+        return if (mbps in 1..100_000) "${mbps}mbps" else null
+    }
+
+    /**
+     * TUIC: Xray-core не реализует протокол TUIC ни в одной версии
+     * (проверено по документации и дереву Xray-core: нет proxy/tuic).
+     * Ссылка распознаётся и валидируется как раньше, но отклоняется с явной
+     * причиной — иначе в конфиг попал бы outbound, который Xray не знает,
+     * и `xray run -test` уронил бы весь конфиг из-за одного узла.
+     */
     private fun parseTuicUri(
         uri: URI,
         query: Map<String, String>,
@@ -911,32 +681,11 @@ object SubscriptionParser {
         if (uuid.isEmpty() || password.isEmpty()) {
             return null to ParseIssue(hint, "нет uuid:пароль")
         }
-        val sni = query["sni"].orEmpty().ifBlank { host }
-        val alpn = query["alpn"].orEmpty()
         val cc = query["congestion_control"].orEmpty().lowercase()
         if (cc.isNotEmpty() && cc !in setOf("cubic", "new_reno", "bbr")) {
             return null to ParseIssue(hint, "congestion_control=$cc не поддерживается")
         }
-        val outbound = buildJsonObject {
-            put("type", "tuic")
-            put("server", host)
-            put("server_port", port)
-            put("uuid", uuid)
-            put("password", password)
-            if (cc.isNotEmpty()) put("congestion_control", cc)
-            put("tls", buildJsonObject {
-                put("enabled", true)
-                put("server_name", sni)
-                if (alpn.isNotEmpty()) {
-                    put("alpn", buildJsonArray { alpn.split(",").forEach { add(it.trim()) } })
-                }
-            })
-        }
-        return ParsedServer(
-            tag = tag, label = label, protocol = "tuic",
-            kind = ServerKind.NATIVE, address = host,
-            singBoxOutbound = outbound, xrayOutbound = null,
-        ) to null
+        return null to ParseIssue(hint, "TUIC не поддерживается Xray")
     }
 
     private fun parseVmessLink(line: String, tags: TagScope): Pair<ParsedServer?, ParseIssue?> {
@@ -961,14 +710,16 @@ object SubscriptionParser {
         if (type != "none") {
             return null to ParseIssue(hint, "TCP HTTP-заголовок не поддерживается")
         }
-        if (net == "xhttp") {
-            return null to ParseIssue(hint, "vmess/xhttp — не поддерживается")
-        }
         val tls = (obj["tls"] as? JsonPrimitive)?.contentOrNull?.lowercase().orEmpty()
         val security = if (tls == "tls") "tls" else "none"
+        val vmessSecurity = (obj["scy"] as? JsonPrimitive)?.contentOrNull?.lowercase()
+            .orEmpty().ifBlank { "auto" }
+        if (vmessSecurity !in setOf("auto", "aes-128-gcm", "chacha20-poly1305", "none", "zero")) {
+            return null to ParseIssue(hint, "неизвестный VMess security: $vmessSecurity")
+        }
+        val alterId = (obj["aid"] as? JsonPrimitive)?.contentOrNull?.toIntOrNull() ?: 0
         val query = mapOf(
             "security" to security,
-            "type" to net,
             "sni" to ((obj["sni"] as? JsonPrimitive)?.contentOrNull.orEmpty()),
             "host" to ((obj["host"] as? JsonPrimitive)?.contentOrNull.orEmpty()),
             "path" to ((obj["path"] as? JsonPrimitive)?.contentOrNull.orEmpty()),
@@ -976,159 +727,136 @@ object SubscriptionParser {
             "fp" to ((obj["fp"] as? JsonPrimitive)?.contentOrNull.orEmpty()),
             "alpn" to ((obj["alpn"] as? JsonPrimitive)?.contentOrNull.orEmpty()),
         )
+        val settings = buildJsonObject {
+            put("vnext", buildJsonArray {
+                add(buildJsonObject {
+                    put("address", address)
+                    put("port", port)
+                    put("users", buildJsonArray {
+                        add(buildJsonObject {
+                            put("id", uuid)
+                            put("alterId", alterId)
+                            put("security", vmessSecurity)
+                        })
+                    })
+                })
+            })
+        }
         val tag = tags.unique(label)
-        val outbound = convertLinkToSingBox(
-            protocol = "vmess", host = address, port = port,
-            uuid = uuid, flow = "",
-            security = security, type = net, query = query,
-            vmessSecurity = (obj["scy"] as? JsonPrimitive)?.contentOrNull?.lowercase()
-                .orEmpty().ifBlank { "auto" },
-            alterId = (obj["aid"] as? JsonPrimitive)?.contentOrNull?.toIntOrNull() ?: 0,
+        val outbound = buildLinkOutbound(
+            protocol = "vmess", settings = settings,
+            network = net, security = security, query = query, host = address,
         ) ?: return null to ParseIssue(hint, "не поддерживается: vmess/$net/$security")
         return ParsedServer(
             tag = tag, label = label, protocol = "vmess",
-            kind = ServerKind.NATIVE, address = address,
-            singBoxOutbound = outbound, xrayOutbound = null,
+            address = address, xrayOutbound = outbound, network = net,
         ) to null
     }
 
+    // ---------- Xray streamSettings из параметров ссылки ----------
+
     /**
-     * Общая конвертация ссылки (vless/vmess) в sing-box outbound.
-     * null — комбинация не поддерживается.
+     * Собирает Xray outbound для vless/vmess/trojan из параметров ссылки.
+     * null — комбинация не поддерживается (тогда caller делает issue).
+     * Форматы — по документации Xray (xtls.github.io): streamSettings с
+     * network/security, tlsSettings/realitySettings, wsSettings/grpcSettings/
+     * httpSettings/httpupgradeSettings/xhttpSettings.
      */
-    private fun convertLinkToSingBox(
+    private fun buildLinkOutbound(
         protocol: String,
-        host: String,
-        port: Int,
-        uuid: String,
-        flow: String,
+        settings: JsonObject,
+        network: String,
         security: String,
-        type: String,
         query: Map<String, String>,
-        vmessSecurity: String = "auto",
-        alterId: Int = 0,
+        host: String,
     ): JsonObject? {
-        if (type !in setOf("tcp", "ws", "grpc", "http")) return null
+        val stream = buildLinkStreamSettings(network, security, query, host)
+            ?: return null
+        return buildJsonObject {
+            put("protocol", protocol)
+            put("settings", settings)
+            put("streamSettings", stream)
+        }
+    }
+
+    private fun buildLinkStreamSettings(
+        network: String,
+        security: String,
+        query: Map<String, String>,
+        host: String,
+    ): JsonObject? {
+        if (network !in setOf("tcp", "ws", "grpc", "http", "httpupgrade", "xhttp")) return null
         if (security !in setOf("none", "tls", "reality")) return null
-        val transport = linkTransport(type, query)
-        val tls = linkTls(security, query, host)
-        // reality без sni/pbk — отклоняем, а не снимаем шифрование молча.
-        if (security != "none" && tls == null) return null
-        val base: JsonObject = when (protocol) {
-            "vless" -> buildJsonObject {
-                put("type", "vless")
-                put("server", host)
-                put("server_port", port)
-                put("uuid", uuid)
-                if (flow.isNotEmpty()) put("flow", flow)
-            }
-            "vmess" -> {
-                if (vmessSecurity !in setOf("auto", "aes-128-gcm", "chacha20-poly1305", "none", "zero")) {
-                    return null
-                }
-                buildJsonObject {
-                    put("type", "vmess")
-                    put("server", host)
-                    put("server_port", port)
-                    put("uuid", uuid)
-                    put("security", vmessSecurity)
-                    if (alterId != 0) put("alter_id", alterId)
-                }
-            }
-            else -> return null
+        // TCP HTTP-заголовок Xray-ссылками не описывается — отклоняем, а не
+        // теряем параметр молча.
+        if (network == "tcp") {
+            val headerType = (query["headerType"] ?: "none").lowercase()
+            if (headerType != "none") return null
         }
-        var result = base
-        if (tls != null) result = JsonObject(result + ("tls" to tls))
-        if (transport != null) result = JsonObject(result + ("transport" to transport))
-        return result
-    }
-
-    /** Параметры ссылки -> sing-box transport. null = не поддерживается. */
-    private fun linkTransport(type: String, query: Map<String, String>): JsonObject? {
-        return when (type) {
-            "tcp" -> {
-                val headerType = (query["headerType"] ?: "none").lowercase()
-                if (headerType != "none") return null
-                null
-            }
-            "ws" -> {
-                val path = query["path"].orEmpty().ifBlank { "/" }
-                val host = query["host"].orEmpty()
-                buildJsonObject {
-                    put("type", "ws")
-                    put("path", path)
-                    if (host.isNotEmpty()) {
-                        put("headers", buildJsonObject { put("Host", host) })
-                    }
-                }
-            }
-            "grpc" -> {
-                val serviceName = query["serviceName"].orEmpty()
-                buildJsonObject {
-                    put("type", "grpc")
-                    if (serviceName.isNotEmpty()) put("service_name", serviceName)
-                }
-            }
-            "http" -> {
-                val host = query["host"].orEmpty()
-                val path = query["path"].orEmpty().ifBlank { "/" }
-                buildJsonObject {
-                    put("type", "http")
-                    if (host.isNotEmpty()) put("host", host)
-                    put("path", path)
-                }
-            }
-            else -> null // kcp, xhttp (отдельно), quic — не поддерживаются
+        // Reality без sni/pbk — отклоняем, а не снимаем шифрование молча.
+        if (security == "reality") {
+            if (query["sni"].isNullOrEmpty() || query["pbk"].isNullOrEmpty()) return null
         }
-    }
-
-    /** Параметры ссылки -> sing-box tls. null = неизвестная защита. */
-    private fun linkTls(security: String, query: Map<String, String>, host: String): JsonObject? {
-        return when (security) {
-            "none", "" -> null
-            "tls" -> {
-                val sni = query["sni"].orEmpty().ifBlank { host }
-                val alpn = query["alpn"].orEmpty()
-                val fp = query["fp"].orEmpty()
-                val allowInsecure = query["allowInsecure"] == "1" || query["insecure"] == "1"
-                buildJsonObject {
-                    put("enabled", true)
-                    put("server_name", sni)
+        return buildJsonObject {
+            put("network", network)
+            put("security", security)
+            when (security) {
+                "tls" -> put("tlsSettings", buildJsonObject {
+                    put("serverName", query["sni"].orEmpty().ifBlank { host })
+                    val alpn = query["alpn"].orEmpty()
                     if (alpn.isNotEmpty()) {
-                        put("alpn", buildJsonArray { alpn.split(",").forEach { add(it.trim()) } })
-                    }
-                    if (fp.isNotEmpty() && fp in UTLS_FINGERPRINTS) {
-                        put("utls", buildJsonObject {
-                            put("enabled", true)
-                            put("fingerprint", fp)
+                        put("alpn", buildJsonArray {
+                            alpn.split(",").forEach { add(it.trim()) }
                         })
                     }
-                    if (allowInsecure) put("insecure", true)
-                }
-            }
-            "reality" -> {
-                val sni = query["sni"].orEmpty()
-                val fp = query["fp"].orEmpty()
-                val pbk = query["pbk"].orEmpty()
-                val sid = query["sid"].orEmpty()
-                if (sni.isEmpty() || pbk.isEmpty()) return null
-                buildJsonObject {
-                    put("enabled", true)
-                    put("server_name", sni)
-                    if (fp.isNotEmpty() && fp in UTLS_FINGERPRINTS) {
-                        put("utls", buildJsonObject {
-                            put("enabled", true)
-                            put("fingerprint", fp)
-                        })
+                    val fp = query["fp"].orEmpty()
+                    if (fp.isNotEmpty() && fp in UTLS_FINGERPRINTS) put("fingerprint", fp)
+                    if (query["allowInsecure"] == "1" || query["insecure"] == "1") {
+                        put("allowInsecure", true)
                     }
-                    put("reality", buildJsonObject {
-                        put("enabled", true)
-                        put("public_key", pbk)
-                        if (sid.isNotEmpty()) put("short_id", sid)
-                    })
-                }
+                })
+                "reality" -> put("realitySettings", buildJsonObject {
+                    put("serverName", query["sni"].orEmpty())
+                    val fp = query["fp"].orEmpty()
+                    if (fp.isNotEmpty() && fp in UTLS_FINGERPRINTS) put("fingerprint", fp)
+                    put("publicKey", query["pbk"].orEmpty())
+                    val sid = query["sid"].orEmpty()
+                    if (sid.isNotEmpty()) put("shortId", sid)
+                    val spx = query["spx"].orEmpty()
+                    if (spx.isNotEmpty()) put("spiderX", spx)
+                })
             }
-            else -> null
+            when (network) {
+                "ws" -> put("wsSettings", buildJsonObject {
+                    put("path", query["path"].orEmpty().ifBlank { "/" })
+                    val wsHost = query["host"].orEmpty()
+                    if (wsHost.isNotEmpty()) {
+                        put("headers", buildJsonObject { put("Host", wsHost) })
+                    }
+                })
+                "grpc" -> put("grpcSettings", buildJsonObject {
+                    val serviceName = query["serviceName"].orEmpty()
+                    if (serviceName.isNotEmpty()) put("serviceName", serviceName)
+                })
+                "http" -> put("httpSettings", buildJsonObject {
+                    val httpHost = query["host"].orEmpty()
+                    if (httpHost.isNotEmpty()) put("host", httpHost)
+                    put("path", query["path"].orEmpty().ifBlank { "/" })
+                })
+                "httpupgrade" -> put("httpupgradeSettings", buildJsonObject {
+                    val upHost = query["host"].orEmpty()
+                    if (upHost.isNotEmpty()) put("host", upHost)
+                    put("path", query["path"].orEmpty().ifBlank { "/" })
+                })
+                "xhttp" -> put("xhttpSettings", buildJsonObject {
+                    val xHost = query["host"].orEmpty()
+                    if (xHost.isNotEmpty()) put("host", xHost)
+                    val xPath = query["path"].orEmpty()
+                    if (xPath.isNotEmpty()) put("path", xPath)
+                    val mode = query["mode"].orEmpty()
+                    if (mode.isNotEmpty()) put("mode", mode)
+                })
+            }
         }
     }
 

@@ -10,14 +10,19 @@ import com.maestrovpn.client.constant.Status
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import java.io.File
 
-// Единая точка управления VPN (срез 2). Движок выбирается так:
-// 1) SingBoxEngine из src/libbox/java (через reflection, чтобы основной код
-//    компилировался без libbox.aar) — реальный sing-box + BoxService;
-// 2) иначе StubEngine.
-// Статус зеркалится из службы через AIDL-биндинг (ServiceConnection): бинд
-// открывается на старте и закрывается на стопе; постоянного бинда из Application
-// нет (bindService с BIND_AUTO_CREATE создавал бы службу навсегда).
+// Единая точка управления VPN (срез 2, переписана в срезе 7, issue #8).
+// Единственный движок — XrayEngine (Xray-core, как в Happ); sing-box/libbox
+// удалён полностью. Статус зеркалится из службы через AIDL-биндинг
+// (ServiceConnection): бинд открывается на старте и закрывается на стопе;
+// постоянного бинда из Application нет (bindService с BIND_AUTO_CREATE
+// создавал бы службу навсегда).
+//
+// Конфиг живёт в двух местах: currentConfigJson — только в памяти процесса,
+// и файл filesDir/xray-config.json — персистентная копия, которую пишет
+// XrayEngine.start(). После перезагрузки процесса/устройства конфиг
+// восстанавливается из файла (плитка, автозапуск) — Profile DB больше нет.
 object EngineManager {
     private val _status = MutableStateFlow(EngineStatus.STOPPED)
     val status: StateFlow<EngineStatus> = _status.asStateFlow()
@@ -37,17 +42,8 @@ object EngineManager {
 
     fun init(app: Application) {
         appContext = app.applicationContext
-        engine = loadEngine()
+        engine = XrayEngine()
         engine.init(app)
-    }
-
-    private fun loadEngine(): VpnEngine {
-        return try {
-            val clazz = Class.forName("com.maestrovpn.client.core.engine.SingBoxEngine")
-            clazz.getDeclaredConstructor().newInstance() as VpnEngine
-        } catch (_: Exception) {
-            StubEngine()
-        }
     }
 
     /** Есть ли выбранный сервер/конфиг для подключения (конфиг хранится здесь). */
@@ -58,6 +54,12 @@ object EngineManager {
         currentConfigJson = configJson
     }
 
+    /** Служба для текущего конфига: VPNService (tun inbound) или ProxyService. */
+    fun serviceClass(): Class<*> {
+        val xray = engine as? XrayEngine ?: return com.maestrovpn.client.bg.VPNService::class.java
+        return xray.serviceClass(resolveConfig())
+    }
+
     /**
      * Intent системного диалога разрешения VPN или null, если разрешение уже есть.
      * Диалог запускает MainActivity через ActivityResultLauncher; при RESULT_OK
@@ -66,12 +68,13 @@ object EngineManager {
     fun prepareIntent(context: Context): Intent? = VpnService.prepare(context)
 
     fun startService() {
-        val config = currentConfigJson
+        val config = resolveConfig()
         if (config.isNullOrBlank()) {
             _status.value = EngineStatus.ERROR
             _statusMessage.value = "Сначала выберите сервер"
             return
         }
+        currentConfigJson = config
         _status.value = EngineStatus.STARTING
         val ok = try {
             engine.start(config)
@@ -96,6 +99,13 @@ object EngineManager {
         startedAtMillis = null
         _status.value = EngineStatus.STOPPED
         _statusMessage.value = null
+    }
+
+    /** Конфиг из памяти или, если процесс перезапустился, из файла. */
+    private fun resolveConfig(): String? {
+        currentConfigJson?.takeIf { it.isNotBlank() }?.let { return it }
+        val file = File(appContext.filesDir, XrayEngine.CONFIG_FILE_NAME)
+        return runCatching { file.readText() }.getOrNull()?.takeIf { it.isNotBlank() }
     }
 
     private fun connectService() {
