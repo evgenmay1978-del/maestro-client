@@ -1,7 +1,7 @@
 package com.maestrovpn.client.constant
 
 // Только ключи, которые реально читаются/пишутся (срез 7, issue #8):
-// 36 Maestro-ключей (обновления, F-Droid, AIVPN, privilege settings,
+// 37 Maestro-ключей (обновления, F-Droid, AIVPN, privilege settings,
 // OOM killer, дашборд, remote control, Tailscale SSH, кэш обновлений,
 // selected_profile/service_mode/dynamic_notification) удалены —
 // ни один не использовался в коде.
