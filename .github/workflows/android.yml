@@ -83,12 +83,14 @@ jobs:
 
       - name: make lib_android (gomobile bind -> libbox.aar)
         working-directory: sing-box
-        env:
-          ANDROID_HOME: ${{ env.ANDROID_SDK_ROOT }}
-          ANDROID_SDK_ROOT: ${{ env.ANDROID_SDK_ROOT }}
         run: |
           set -euo pipefail
           export PATH="$(go env GOPATH)/bin:$PATH"
+          # НЕ задавать ANDROID_HOME/ANDROID_SDK_ROOT через env: — ${{ env.* }}
+          # видит только переменные из блоков env workflow, а не дефолты раннера,
+          # поэтому прошлая версия затирала их пустотой и gomobile падал
+          # «FATAL android SDK not found» (run 45406431796). Раннер сам выставляет
+          # ANDROID_HOME/ANDROID_SDK_ROOT/ANDROID_NDK_HOME в окружение шага.
           make lib_android
           ls -lh libbox*.aar
 
