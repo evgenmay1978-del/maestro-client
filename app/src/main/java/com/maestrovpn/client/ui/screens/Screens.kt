@@ -30,7 +30,6 @@ import androidx.navigation.NavController
 import com.maestrovpn.client.BuildConfig
 import com.maestrovpn.client.R
 import com.maestrovpn.client.core.engine.EngineManager
-import com.maestrovpn.client.core.subscription.SubscriptionInfo
 import com.maestrovpn.client.core.subscription.SubscriptionManager
 import com.maestrovpn.client.ui.TelegramButtons
 import com.maestrovpn.client.ui.navigation.Routes
@@ -39,7 +38,6 @@ import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
-import java.util.UUID
 
 // Заглушка экрана (срез 1): заголовок + что здесь будет + ссылка на карту Happ.
 @Composable
@@ -111,17 +109,23 @@ fun AboutScreen() {
 }
 
 // Список подписок (срез 1): чтение/обновление/удаление через SubscriptionManager.
+// Срез 3: обновление показывает настоящую причину ошибки, а не молчит.
 @Composable
 fun SubscriptionsScreen(navController: NavController) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val manager = remember { SubscriptionManager(context, EngineManager.engine) }
     var subs by remember { mutableStateOf(manager.list()) }
+    var message by remember { mutableStateOf<String?>(null) }
     Column(modifier = Modifier.fillMaxSize().padding(20.dp)) {
         Text(stringResource(R.string.subscriptions_title))
         Spacer(Modifier.height(12.dp))
         Button(onClick = { navController.navigate(Routes.SUBSCRIPTION_ADD) }) {
             Text(stringResource(R.string.add_subscription))
+        }
+        message?.let {
+            Spacer(Modifier.height(12.dp))
+            Text(it)
         }
         Spacer(Modifier.height(12.dp))
         val fmt = SimpleDateFormat("dd.MM.yyyy HH:mm", Locale.getDefault())
@@ -134,8 +138,14 @@ fun SubscriptionsScreen(navController: NavController) {
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         Button(onClick = {
                             scope.launch {
-                                manager.refresh(sub)
+                                val result = manager.refresh(sub)
                                 subs = manager.list()
+                                message = when (result) {
+                                    is com.maestrovpn.client.core.subscription.ImportResult.Success ->
+                                        context.getString(R.string.sub_saved)
+                                    is com.maestrovpn.client.core.subscription.ImportResult.Failure ->
+                                        result.reason
+                                }
                             }
                         }) { Text(stringResource(R.string.sub_refresh)) }
                         Button(onClick = {
@@ -149,7 +159,10 @@ fun SubscriptionsScreen(navController: NavController) {
     }
 }
 
-// Добавление подписки (срез 1): URL → скачать → validate-before-save → сохранить.
+// Добавление подписки (срез 3): URL → скачать (прямо, при ошибке — через CDN)
+// → распарсить (ссылки / base64 / Xray JSON / sing-box JSON) → проверить движком
+// → сохранить. Причина ошибки всегда показывается полностью; пустая причина
+// недопустима (дефект среза 2).
 @Composable
 fun SubscriptionAddScreen(navController: NavController) {
     val context = LocalContext.current
@@ -158,6 +171,7 @@ fun SubscriptionAddScreen(navController: NavController) {
     var name by remember { mutableStateOf("") }
     var url by remember { mutableStateOf("") }
     var message by remember { mutableStateOf<String?>(null) }
+    var saved by remember { mutableStateOf(false) }
     var busy by remember { mutableStateOf(false) }
     Column(
         modifier = Modifier.fillMaxSize().padding(20.dp),
@@ -177,34 +191,57 @@ fun SubscriptionAddScreen(navController: NavController) {
             modifier = Modifier.fillMaxWidth(),
         )
         Button(
-            enabled = !busy && url.isNotBlank(),
+            enabled = !busy && url.isNotBlank() && !saved,
             onClick = {
                 busy = true
+                saved = false
                 message = context.getString(R.string.sub_downloading)
                 scope.launch {
-                    val result = runCatching {
-                        val content = manager.download(url.trim()).getOrThrow()
-                        val info = SubscriptionInfo(
-                            id = UUID.randomUUID().toString(),
-                            name = name.ifBlank { url.trim() },
-                            url = url.trim(),
-                            lastUpdatedMillis = System.currentTimeMillis(),
-                            fileName = UUID.randomUUID().toString() + ".json",
-                        )
-                        manager.saveValidated(info, content).getOrThrow()
-                    }
+                    val result = manager.importSubscription(name, url)
                     busy = false
-                    if (result.isSuccess) {
-                        message = context.getString(R.string.sub_saved)
-                        navController.popBackStack()
-                    } else {
-                        message = (context.getString(R.string.sub_invalid) + ": " +
-                            (result.exceptionOrNull()?.message ?: ""))
+                    message = when (result) {
+                        is com.maestrovpn.client.core.subscription.ImportResult.Success -> {
+                            saved = true
+                            val base = if (result.servers >= 0) {
+                                context.getString(R.string.sub_saved_count, result.servers)
+                            } else {
+                                context.getString(R.string.sub_saved_raw)
+                            }
+                            val via = context.getString(
+                                when (result.via) {
+                                    com.maestrovpn.client.core.subscription.DownloadVia.DIRECT ->
+                                        R.string.sub_via_direct
+                                    com.maestrovpn.client.core.subscription.DownloadVia.CDN ->
+                                        R.string.sub_via_cdn
+                                },
+                            )
+                            var text = "$base ($via)"
+                            if (result.xhttpServers > 0) {
+                                text += " · xhttp: ${result.xhttpServers}"
+                            }
+                            if (result.issues.isNotEmpty()) {
+                                text += "\n" + context.getString(
+                                    R.string.sub_issues,
+                                    result.issues.take(3).joinToString("; ") {
+                                        "${it.hint} — ${it.reason}"
+                                    },
+                                )
+                            }
+                            text
+                        }
+                        is com.maestrovpn.client.core.subscription.ImportResult.Failure -> {
+                            context.getString(R.string.sub_invalid) + ": " + result.reason
+                        }
                     }
                 }
             },
         ) {
             Text(stringResource(R.string.sub_add))
+        }
+        if (saved) {
+            Button(onClick = { navController.popBackStack() }) {
+                Text(stringResource(R.string.done))
+            }
         }
         message?.let { Text(it) }
     }

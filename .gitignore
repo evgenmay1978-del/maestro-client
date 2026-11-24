@@ -8,3 +8,4 @@ app/libs/
 *.jks
 *.keystore
 .DS_Store
+.kotlin/

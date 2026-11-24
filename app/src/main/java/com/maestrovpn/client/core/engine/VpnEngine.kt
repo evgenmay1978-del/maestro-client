@@ -36,6 +36,17 @@ interface VpnEngine {
     fun stop()
 
     val lastError: String?
+
+    /**
+     * Подготовить выбранный сервер до старта движка — например, поднять
+     * Xray-раннер для xhttp-узла или остановить его при выборе нативного
+     * узла. Возвращает false, если сервер подготовить нельзя (выбор отклонён).
+     * По умолчанию — no-op (StubEngine).
+     */
+    suspend fun prepareServer(tag: String, configJson: String): Boolean = true
+
+    /** Вызывается после изменения подписок/манифеста раннера. */
+    fun onSubscriptionChanged() {}
 }
 
 // Заглушка движка: sing-box (libbox.aar) не подключён в этой сборке.

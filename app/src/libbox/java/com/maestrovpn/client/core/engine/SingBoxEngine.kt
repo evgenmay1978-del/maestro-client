@@ -12,11 +12,14 @@ import com.maestrovpn.client.database.Settings
 import com.maestrovpn.client.database.TypedProfile
 import io.nekohasekai.libbox.Libbox
 import io.nekohasekai.libbox.SetupOptions
+import com.maestrovpn.client.whitelist.SubXhttpRuntime
+import com.maestrovpn.client.whitelist.SubXhttpSession
 import kotlinx.coroutines.DelicateCoroutinesApi
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.GlobalScope
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withContext
 import java.io.File
 import java.util.Locale
 
@@ -99,6 +102,25 @@ class SingBoxEngine : VpnEngine {
 
     override fun stop() {
         BoxService.stop()
+    }
+
+    /**
+     * Подготовка сервера (срез 3): засеять порты xhttp-узлов из конфига
+     * (patchDirectRules) и поднять/остановить раннер под выбранный тег.
+     * Для нативного узла — остановить раннер (ветка Regular). При рестарте
+     * приложения то же делает SubXhttpSession.restore() в applySelectedContent.
+     */
+    override suspend fun prepareServer(tag: String, configJson: String): Boolean =
+        withContext(Dispatchers.IO) {
+            runCatching {
+                SubXhttpRuntime.patchDirectRules(configJson)
+                SubXhttpSession.onSelected(null, tag)
+            }.getOrDefault(false)
+        }
+
+    /** Манифест раннера переписан — сбросить кэш узлов в памяти. */
+    override fun onSubscriptionChanged() {
+        SubXhttpRuntime.invalidate()
     }
 
     /**

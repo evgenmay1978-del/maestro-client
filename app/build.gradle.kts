@@ -27,7 +27,7 @@ android {
         minSdk = 24
         targetSdk = 35
         versionCode = 1
-        versionName = "0.1.0-slice2"
+        versionName = "0.1.0-slice3"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         // Своя deeplink-схема нового клиента (решение среза 1; поменять легко).
         buildConfigField("String", "DEEP_LINK_SCHEME", "\"maestro\"")

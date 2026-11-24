@@ -7,11 +7,21 @@ import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import java.io.File
 import java.net.HttpURLConnection
+import java.net.SocketTimeoutException
+import java.net.URI
 import java.net.URL
+import java.net.UnknownHostException
+import javax.net.ssl.SSLException
 
-// Подписки (срез 1): загрузка по URL + validate-before-save + атомарная запись.
-// Парсер share-ссылок / Xray JSON — следующий срез (таблица соответствия §3.10, НЕТ).
-// Загрузка идёт напрямую; tunnel-fetch — срез 2 (см. core-survey).
+// Подписки (срез 3): загрузка с CDN-фолбэком + парсер + validate-before-save.
+// Дефект среза 2: добавление подписки Maestro (?format=xray) падало с пустой
+// причиной — причин было две: (а) загрузка напрямую с wapmixx.ru:8911, а прямой
+// TLS туда из российских сетей висит (диагностика 23.11: TCP ok, TLS timeout);
+// (б) парсера Xray-формата не было вообще, а Libbox.checkConfig принимает
+// только sing-box JSON. Обе закрыты здесь: фолбэк на cdn-test.wapmixx.ru
+// (тот же путь и query, как MaestroSub.cdnFallbackUrl у Maestro) и парсер
+// (SubscriptionParser) с конвертацией в sing-box / запуском xhttp через раннер.
+// Пустая причина ошибки больше невозможна: каждый отказ несёт текст.
 @Serializable
 data class SubscriptionInfo(
     val id: String,
@@ -21,6 +31,31 @@ data class SubscriptionInfo(
     val fileName: String,
 )
 
+enum class DownloadVia { DIRECT, CDN }
+
+sealed class DownloadResult {
+    data class Ok(
+        val content: String,
+        val via: DownloadVia,
+        /** Что пробовали, по порядку — для диагностики в сообщении об ошибке. */
+        val attempts: List<String>,
+    ) : DownloadResult()
+
+    data class Failed(val reason: String) : DownloadResult()
+}
+
+sealed class ImportResult {
+    data class Success(
+        /** Число серверов; -1 — готовый sing-box конфиг как есть (серверы не считаются). */
+        val servers: Int,
+        val via: DownloadVia,
+        val xhttpServers: Int,
+        val issues: List<ParseIssue>,
+    ) : ImportResult()
+
+    data class Failure(val reason: String) : ImportResult()
+}
+
 class SubscriptionManager(
     private val context: Context,
     private val engine: VpnEngine,
@@ -28,7 +63,21 @@ class SubscriptionManager(
     companion object {
         const val MAX_BYTES = 8 * 1024 * 1024 // как у Maestro (ProfileImportHandler)
         const val TIMEOUT_MS = 10_000
-        const val USER_AGENT = "MaestroClient/0.1.0-slice1"
+        const val USER_AGENT = "MaestroClient/0.1.0-slice3"
+
+        /** Наш CDN-домен — тот же, что у Maestro (cdn-test.wapmixx.ru). */
+        const val CDN_HOST = "cdn-test.wapmixx.ru"
+
+        /** Фолбэк только для нашей панели; чужие подписки идут только напрямую. */
+        fun cdnFallbackUrl(url: String): String? = runCatching {
+            val source = URI(url)
+            if (!source.scheme.equals("https", ignoreCase = true)) return null
+            if (!source.host.equals("wapmixx.ru", ignoreCase = true)) return null
+            if (source.rawUserInfo != null) return null
+            val path = source.rawPath ?: return null
+            if (!path.startsWith("/sub/")) return null
+            "https://$CDN_HOST$path" + (source.rawQuery?.let { "?$it" } ?: "")
+        }.getOrNull()
     }
 
     private val dir: File
@@ -36,6 +85,9 @@ class SubscriptionManager(
 
     private val indexFile: File
         get() = File(dir, "index.json")
+
+    private val manifestFile: File
+        get() = File(context.filesDir, "subxhttp-nodes.json")
 
     private val json = Json { ignoreUnknownKeys = true }
 
@@ -53,7 +105,7 @@ class SubscriptionManager(
         indexFile.writeText(json.encodeToString(list))
     }
 
-    /** Скачать содержимое подписки. Без парсинга — сырые байты как текст. */
+    /** Одно скачивание без фолбэка. Исключение всегда с непустым текстом. */
     fun download(url: String): Result<String> = runCatching {
         val conn = (URL(url).openConnection() as HttpURLConnection).apply {
             connectTimeout = TIMEOUT_MS
@@ -64,28 +116,231 @@ class SubscriptionManager(
         }
         try {
             val code = conn.responseCode
-            require(code in 200..299) { "HTTP $code" }
+            if (code !in 200..299) {
+                throw java.io.IOException("HTTP $code")
+            }
             val bytes = conn.inputStream.use { it.readBytes() }
-            require(bytes.size <= MAX_BYTES) { "Подписка больше ${MAX_BYTES / 1024 / 1024} МБ" }
+            if (bytes.size > MAX_BYTES) {
+                throw java.io.IOException("Подписка больше ${MAX_BYTES / 1024 / 1024} МБ")
+            }
             String(bytes, Charsets.UTF_8)
         } finally {
             conn.disconnect()
         }
+    }.recoverCatching { e ->
+        throw java.io.IOException(describeError(e), e)
     }
 
     /**
-     * Сохранить подписку только после проверки движком (validate-before-save):
-     * битая подписка живой конфиг не трогает. Запись атомарная (tmp + rename).
+     * Скачивание с фолбэком: сначала прямой URL, при транспортной ошибке
+     * (таймаут/сеть/TLS) — тот же URL на CDN. HTTP-ошибки (404/403) не
+     * фолбэчатся: CDN вернёт то же самое, а причина станет непонятной.
      */
-    fun saveValidated(info: SubscriptionInfo, content: String): Result<Unit> = runCatching {
-        require(engine.validateConfig(content)) { "Конфиг подписки не прошёл проверку движка" }
+    fun downloadWithFallback(url: String): DownloadResult {
+        val attempts = ArrayList<String>()
+        val direct = download(url)
+        if (direct.isSuccess) {
+            return DownloadResult.Ok(direct.getOrThrow(), DownloadVia.DIRECT, attempts)
+        }
+        val directError = direct.exceptionOrNull()
+        attempts += "напрямую: " + describeError(directError)
+        // Фолбэк только при транспортной ошибке; HTTP-код — это ответ сервера.
+        val isTransportError = directError?.let { isTransportError(it) } ?: false
+        val fallbackUrl = cdnFallbackUrl(url)
+        if (!isTransportError || fallbackUrl == null) {
+            return DownloadResult.Failed(
+                "Не удалось загрузить подписку (" + attempts.joinToString("; ") + ")",
+            )
+        }
+        val viaCdn = download(fallbackUrl)
+        if (viaCdn.isSuccess) {
+            return DownloadResult.Ok(viaCdn.getOrThrow(), DownloadVia.CDN, attempts)
+        }
+        attempts += "через CDN: " + describeError(viaCdn.exceptionOrNull())
+        return DownloadResult.Failed(
+            "Не удалось загрузить подписку (" + attempts.joinToString("; ") + ")",
+        )
+    }
+
+    private fun isTransportError(e: Throwable?): Boolean {
+        var current = e
+        while (current != null) {
+            if (current is SocketTimeoutException ||
+                current is UnknownHostException ||
+                current is SSLException ||
+                current is java.net.ConnectException ||
+                current is java.io.IOException &&
+                current.message?.contains("HTTP ") != true
+            ) {
+                return true
+            }
+            current = current.cause
+        }
+        return false
+    }
+
+    /** Человекочитаемая причина; никогда не пустая (минимум — имя класса). */
+    fun describeError(e: Throwable?): String {
+        if (e == null) return "неизвестная ошибка"
+        val message = e.message?.trim().orEmpty()
+        if (message.isNotEmpty()) {
+            return when (e) {
+                is SocketTimeoutException -> "таймаут ${TIMEOUT_MS / 1000} с ($message)"
+                else -> message
+            }
+        }
+        val cause = e.cause
+        if (cause != null && !cause.message.isNullOrBlank()) return describeError(cause)
+        return e.javaClass.simpleName
+    }
+
+    /**
+     * Полный импорт: скачать (с фолбэком) → распарсить → собрать sing-box
+     * конфиг → проверить движком → сохранить сырое тело + манифест раннера.
+     * Битая подписка живой конфиг не трогает (validate-before-save).
+     */
+    fun importSubscription(name: String, url: String): ImportResult {
+        val trimmedUrl = url.trim()
+        if (list().any { it.url.trim() == trimmedUrl }) {
+            return ImportResult.Failure("Такая подписка уже добавлена")
+        }
+        val downloaded = downloadWithFallback(trimmedUrl)
+        if (downloaded is DownloadResult.Failed) {
+            return ImportResult.Failure(downloaded.reason)
+        }
+        downloaded as DownloadResult.Ok
+        return saveParsed(
+            info = SubscriptionInfo(
+                id = java.util.UUID.randomUUID().toString(),
+                name = name.ifBlank { trimmedUrl },
+                url = trimmedUrl,
+                lastUpdatedMillis = System.currentTimeMillis(),
+                fileName = java.util.UUID.randomUUID().toString() + ".txt",
+            ),
+            content = downloaded.content,
+            via = downloaded.via,
+        )
+    }
+
+    /** Обновить подписку: скачать заново и сохранить только если проверка прошла. */
+    fun refresh(info: SubscriptionInfo): ImportResult {
+        val downloaded = downloadWithFallback(info.url)
+        if (downloaded is DownloadResult.Failed) {
+            return ImportResult.Failure(downloaded.reason)
+        }
+        downloaded as DownloadResult.Ok
+        return saveParsed(
+            info = info.copy(lastUpdatedMillis = System.currentTimeMillis()),
+            content = downloaded.content,
+            via = downloaded.via,
+        )
+    }
+
+    private fun saveParsed(
+        info: SubscriptionInfo,
+        content: String,
+        via: DownloadVia,
+    ): ImportResult {
+        val parsed = SubscriptionParser.parse(content)
+        if (parsed.format == SubscriptionFormat.SING_BOX_CONFIG) {
+            val raw = parsed.singBoxConfig.orEmpty()
+            if (!engine.validateConfig(raw)) {
+                return ImportResult.Failure(
+                    "Конфиг подписки не прошёл проверку движка (sing-box отклонил JSON)",
+                )
+            }
+            saveRaw(info, content, manifestJson = null)
+            return ImportResult.Success(
+                servers = -1, via = via, xhttpServers = 0, issues = emptyList(),
+            )
+        }
+        if (parsed.servers.isEmpty()) {
+            return ImportResult.Failure(noServersReason(parsed))
+        }
+        val built = SingBoxConfigBuilder.build(parsed.servers, selectedTag = null)
+        if (!engine.validateConfig(built.configJson)) {
+            return ImportResult.Failure(
+                "Собранный конфиг не прошёл проверку движка " +
+                    "(${parsed.servers.size} серверов распознано, но sing-box отклонил конфиг)",
+            )
+        }
+        saveRaw(info, content, manifestJson = built.manifestJson)
+        return ImportResult.Success(
+            servers = parsed.servers.size,
+            via = via,
+            xhttpServers = built.runnerTags.size,
+            issues = parsed.issues,
+        )
+    }
+
+    private fun saveRaw(info: SubscriptionInfo, content: String, manifestJson: String?) {
         val target = File(dir, info.fileName)
         val tmp = File(dir, info.fileName + ".tmp")
         tmp.writeText(content)
-        require(tmp.renameTo(target)) { "Не удалось сохранить файл подписки" }
+        if (!tmp.renameTo(target)) {
+            target.writeText(content)
+            tmp.delete()
+        }
+        if (manifestJson != null) {
+            val manifestTmp = File(context.filesDir, manifestFile.name + ".tmp")
+            manifestTmp.writeText(manifestJson)
+            if (!manifestTmp.renameTo(manifestFile)) {
+                manifestFile.writeText(manifestJson)
+                manifestTmp.delete()
+            }
+        }
         val updated = list().filterNot { it.id == info.id } + info
         saveIndex(updated)
+        engine.onSubscriptionChanged()
     }
+
+    private fun noServersReason(parsed: ParsedSubscription): String {
+        val sb = StringBuilder("Серверов не найдено (формат: ${parsed.format}")
+        if (parsed.ignoredLines > 0) sb.append(", пропущено строк: ${parsed.ignoredLines}")
+        sb.append(")")
+        val shown = parsed.issues.take(3)
+        if (shown.isNotEmpty()) {
+            sb.append(": ")
+            sb.append(shown.joinToString("; ") { "${it.hint} — ${it.reason}" })
+        }
+        if (parsed.issues.size > 3) {
+            sb.append(" (и ещё ${parsed.issues.size - 3})")
+        }
+        if (parsed.format == SubscriptionFormat.UNKNOWN) {
+            sb.append(". Подписка должна быть списком ссылок, base64-списком, Xray JSON или sing-box JSON")
+        }
+        return sb.toString()
+    }
+
+    /** Распарсить сохранённую подписку (сырое тело → серверы). */
+    fun servers(info: SubscriptionInfo): ParsedSubscription {
+        val content = loadContent(info) ?: return ParsedSubscription(
+            SubscriptionFormat.EMPTY, emptyList(),
+            listOf(ParseIssue(info.name.take(80), "файл подписки не найден")), 0,
+        )
+        return SubscriptionParser.parse(content)
+    }
+
+    /**
+     * Собрать sing-box конфиг для выбора сервера. null — только при пустой
+     * подписке; причина — в тексте исключения.
+     */
+    fun buildConfigFor(info: SubscriptionInfo, selectedTag: String?): Result<String> =
+        runCatching {
+            val parsed = servers(info)
+            if (parsed.format == SubscriptionFormat.SING_BOX_CONFIG) {
+                return@runCatching parsed.singBoxConfig
+                    ?: throw IllegalStateException("пустой sing-box конфиг")
+            }
+            if (parsed.servers.isEmpty()) {
+                throw IllegalStateException(noServersReason(parsed))
+            }
+            val built = SingBoxConfigBuilder.build(parsed.servers, selectedTag)
+            if (!engine.validateConfig(built.configJson)) {
+                throw IllegalStateException("Собранный конфиг не прошёл проверку движка")
+            }
+            built.configJson
+        }
 
     fun loadContent(info: SubscriptionInfo): String? {
         val f = File(dir, info.fileName)
@@ -97,9 +352,30 @@ class SubscriptionManager(
         saveIndex(list().filterNot { it.id == info.id })
     }
 
-    /** Обновить подписку: скачать заново и сохранить только если проверка прошла. */
-    fun refresh(info: SubscriptionInfo): Result<Unit> = runCatching {
-        val content = download(info.url).getOrThrow()
-        saveValidated(info.copy(lastUpdatedMillis = System.currentTimeMillis()), content).getOrThrow()
+    // Выбор сервера (срез 3): подписка + тег, чтобы выбор пережил рестарт.
+    // Файл маленький, пишется через tmp+rename, как манифест раннера.
+    @Serializable
+    data class ServerSelection(val subscriptionId: String, val tag: String)
+
+    private val selectionFile: File
+        get() = File(context.filesDir, "selected-server.json")
+
+    fun saveSelection(subscriptionId: String, tag: String) {
+        val tmp = File(context.filesDir, selectionFile.name + ".tmp")
+        tmp.writeText(json.encodeToString(ServerSelection(subscriptionId, tag)))
+        if (!tmp.renameTo(selectionFile)) {
+            selectionFile.writeText(json.encodeToString(ServerSelection(subscriptionId, tag)))
+            tmp.delete()
+        }
+    }
+
+    fun loadSelection(): ServerSelection? {
+        val f = selectionFile
+        if (!f.exists()) return null
+        return runCatching { json.decodeFromString<ServerSelection>(f.readText()) }.getOrNull()
+    }
+
+    fun clearSelection() {
+        selectionFile.delete()
     }
 }

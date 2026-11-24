@@ -55,8 +55,22 @@
     <string name="ping_not_measured">Пинг: нет замера (срез 1)</string>
     <string name="sub_downloading">Загрузка подписки…</string>
     <string name="sub_saved">Подписка сохранена</string>
+    <string name="sub_saved_count">Подписка сохранена: %1$d серверов</string>
+    <string name="sub_saved_raw">Подписка сохранена (готовый sing-box конфиг)</string>
+    <string name="sub_via_direct">загружено напрямую</string>
+    <string name="sub_via_cdn">загружено через CDN</string>
+    <string name="sub_issues">Не распознано: %1$s</string>
     <string name="sub_invalid">Подписка не прошла проверку и не сохранена</string>
     <string name="sub_error">Не удалось загрузить подписку</string>
+
+    <!-- Главный экран (срез 3): секции меню и выбор сервера -->
+    <string name="dashboard_actions">Быстрые действия</string>
+    <string name="dashboard_contact">Связь</string>
+    <string name="dashboard_servers">Серверы</string>
+    <string name="server_selected">Выбран сервер: %1$s</string>
+    <string name="server_prepare_failed">Не удалось подготовить сервер: %1$s</string>
+    <string name="server_build_failed">Не удалось собрать конфиг: %1$s</string>
+    <string name="done">Готово</string>
 
     <!-- Типы профилей (TypedProfile.Type.getString, срез 2) -->
     <string name="profile_type_local">Локальный</string>
