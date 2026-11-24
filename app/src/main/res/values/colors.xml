@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Палитра — из MaestroVPN (compose/theme/Theme.kt, HEAD 3dc6878):
+     тёмная премиум-тема: дерево/золото/изумруд. Только тёмная тема (решение среза 1). -->
+<resources>
+    <color name="maestro_gold_primary">#FFE8C877</color>
+    <color name="maestro_gold_on_primary">#FF241506</color>
+    <color name="maestro_gold_container">#FF4A3218</color>
+    <color name="maestro_emerald">#FF73D98A</color>
+    <color name="maestro_background">#FF090603</color>
+    <color name="maestro_on_background">#FFF1EEE6</color>
+    <color name="maestro_surface">#FF171008</color>
+    <color name="maestro_surface_variant">#FF2B1D10</color>
+    <color name="maestro_on_surface_variant">#FFD5C5A8</color>
+    <color name="maestro_outline">#FFA87C3A</color>
+    <color name="maestro_outline_variant">#FF5C3F20</color>
+</resources>

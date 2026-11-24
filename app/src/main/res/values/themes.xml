@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <style name="Theme.MaestroClient" parent="android:Theme.Material.NoActionBar">
+        <item name="android:windowBackground">@color/maestro_background</item>
+        <item name="android:colorBackground">@color/maestro_background</item>
+        <item name="android:textColor">@color/maestro_on_background</item>
+        <item name="android:navigationBarColor">@color/maestro_background</item>
+        <item name="android:statusBarColor">@color/maestro_background</item>
+    </style>
+</resources>

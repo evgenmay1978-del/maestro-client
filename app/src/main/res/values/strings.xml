@@ -1,0 +1,67 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Maestro Client</string>
+    <string name="tile_label">Maestro Client</string>
+
+    <!-- Главный экран -->
+    <string name="dashboard_title">Maestro Client</string>
+    <string name="status_disconnected">Отключено</string>
+    <string name="status_connecting">Подключение…</string>
+    <string name="status_connected">Подключено</string>
+    <string name="status_error">Ошибка</string>
+
+    <!-- Уведомление службы (BoxService/ServiceNotification, срез 2) -->
+    <string name="status_starting">Запуск…</string>
+    <string name="status_started">Подключено</string>
+    <string name="stop">Остановить</string>
+    <string name="tap_coin_to_connect">Нажмите на монету, чтобы подключиться</string>
+    <string name="tap_coin_to_disconnect">Нажмите на монету, чтобы отключиться</string>
+    <string name="no_server_title">Нет ни одного сервера</string>
+    <string name="no_server_hint">Чтобы пользоваться приложением, добавьте сервер или подписку.</string>
+    <string name="import_clipboard">Буфер обмена</string>
+    <string name="import_qr">QR-код</string>
+    <string name="add_subscription">Добавить подписку</string>
+    <string name="servers_title">Серверы</string>
+    <string name="subscriptions_title">Подписки</string>
+    <string name="session_time">Время сессии</string>
+    <string name="test_ping">Проверить пинг</string>
+
+    <!-- Telegram: единственные внешние ссылки в приложении -->
+    <string name="telegram_bot">Наш Telegram-бот</string>
+    <string name="telegram_personal">Написать Евгению</string>
+
+    <!-- Заглушки экранов (срез 1: только навигация, логика — следующие срезы) -->
+    <string name="stub_title">Экран в разработке</string>
+    <string name="stub_body">Этот экран появится в следующих срезах: здесь будет %1$s.</string>
+    <string name="stub_source">По карте Happ: %1$s</string>
+
+    <!-- Настройки -->
+    <string name="settings_title">Настройки</string>
+
+    <!-- About -->
+    <string name="about_title">О приложении</string>
+    <string name="about_version">Версия приложения</string>
+    <string name="about_engine">Ядро</string>
+    <string name="about_engine_stub">sing-box — не подключён (срез 1)</string>
+    <string name="about_device">Устройство</string>
+
+    <!-- Подписка -->
+    <string name="sub_url_hint">Ссылка на подписку (https://…)</string>
+    <string name="sub_add">Добавить</string>
+    <string name="sub_refresh">Обновить</string>
+    <string name="sub_delete">Удалить</string>
+    <string name="sub_name">Название</string>
+    <string name="select_active">Выбрать как активную</string>
+    <string name="ping_not_measured">Пинг: нет замера (срез 1)</string>
+    <string name="sub_downloading">Загрузка подписки…</string>
+    <string name="sub_saved">Подписка сохранена</string>
+    <string name="sub_invalid">Подписка не прошла проверку и не сохранена</string>
+    <string name="sub_error">Не удалось загрузить подписку</string>
+
+    <!-- Типы профилей (TypedProfile.Type.getString, срез 2) -->
+    <string name="profile_type_local">Локальный</string>
+    <string name="profile_type_remote">Удалённый</string>
+
+    <string name="engine_not_bundled">Движок sing-box ещё не подключён в этой сборке (срез 1)</string>
+    <string name="no_server_selected">Сначала выберите сервер</string>
+</resources>
