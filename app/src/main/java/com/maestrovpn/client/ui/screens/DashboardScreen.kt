@@ -89,6 +89,7 @@ fun DashboardScreen(
     val status by EngineManager.status.collectAsState()
     val statusMessage by EngineManager.statusMessage.collectAsState()
     val manager = remember { SubscriptionManager(context, EngineManager.engine) }
+    val manualStore = remember { com.maestrovpn.client.core.subscription.ManualServerStore(context, EngineManager.engine) }
     var subscriptions by remember { mutableStateOf(manager.list()) }
     var parsedById by remember { mutableStateOf<Map<String, ParsedSubscription>>(emptyMap()) }
     var selectedSubId by remember { mutableStateOf<String?>(null) }
@@ -114,7 +115,8 @@ fun DashboardScreen(
 
     // Восстановить выбор сервера после рестарта: собрать конфиг и поставить
     // его текущим. Раннер при этом не трогаем — его поднимет restore()
-    // в applySelectedContent при старте службы.
+    // в applySelectedContent при старте службы. Сначала выбор подписки,
+    // затем (срез 5) — выбор ручного сервера.
     LaunchedEffect(Unit) {
         if (EngineManager.currentConfigJson.isNullOrBlank()) {
             val selection = withContext(Dispatchers.IO) { manager.loadSelection() }
@@ -129,6 +131,20 @@ fun DashboardScreen(
                         selectedSubId = selection.subscriptionId
                         selectedTag = selection.tag
                     }
+                }
+            }
+        }
+        if (EngineManager.currentConfigJson.isNullOrBlank()) {
+            val manualSelection = withContext(Dispatchers.IO) { manualStore.loadSelection() }
+            if (manualSelection != null) {
+                val manual = withContext(Dispatchers.IO) {
+                    manualStore.get(manualSelection.serverId)
+                }
+                if (manual != null) {
+                    val built = withContext(Dispatchers.IO) {
+                        manualStore.buildConfigFor(manual)
+                    }
+                    built.getOrNull()?.configJson?.let { EngineManager.setConfig(it) }
                 }
             }
         }
@@ -161,7 +177,12 @@ fun DashboardScreen(
                 return@launch
             }
             EngineManager.setConfig(configJson)
-            withContext(Dispatchers.IO) { manager.saveSelection(subId, tag) }
+            withContext(Dispatchers.IO) {
+                manager.saveSelection(subId, tag)
+                // Один активный сервер на всё приложение: выбор подписки
+                // снимает выбор ручного сервера (и наоборот — см. ServersScreen).
+                manualStore.clearSelection()
+            }
             selectedSubId = subId
             selectedTag = tag
             snackbar.showSnackbar(context.getString(R.string.server_selected, tag))

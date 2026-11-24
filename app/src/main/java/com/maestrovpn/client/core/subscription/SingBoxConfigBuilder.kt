@@ -118,6 +118,16 @@ object SingBoxConfigBuilder {
                     put("default", selected)
                 })
             })
+            // WireGuard в sing-box 1.14 — endpoint, не outbound (срез 5):
+            // endpoint несёт свой tag и выбирается селектором по тому же тегу.
+            // Подписки endpoint'ов не дают (парсер отклоняет WireGuard), так что
+            // для пути подписок этот блок всегда пуст.
+            val endpoints = servers.mapNotNull { it.singBoxEndpoint }
+            if (endpoints.isNotEmpty()) {
+                put("endpoints", buildJsonArray {
+                    endpoints.forEach { add(it) }
+                })
+            }
             put("route", buildJsonObject {
                 put("final", "select")
                 put("auto_detect_interface", true)

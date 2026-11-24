@@ -10,13 +10,17 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.Surface
 import androidx.compose.ui.Modifier
+import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
+import androidx.navigation.navArgument
 import com.maestrovpn.client.core.engine.EngineManager
 import com.maestrovpn.client.ui.navigation.Routes
 import com.maestrovpn.client.ui.screens.AboutScreen
 import com.maestrovpn.client.ui.screens.DashboardScreen
+import com.maestrovpn.client.ui.screens.ServerEditorScreen
+import com.maestrovpn.client.ui.screens.ServersScreen
 import com.maestrovpn.client.ui.screens.SettingsScreen
 import com.maestrovpn.client.ui.screens.StubScreen
 import com.maestrovpn.client.ui.screens.SubscriptionAddScreen
@@ -59,6 +63,28 @@ class MainActivity : ComponentActivity() {
                         composable(Routes.ABOUT) { AboutScreen() }
                         composable(Routes.SUBSCRIPTIONS) { SubscriptionsScreen(navController) }
                         composable(Routes.SUBSCRIPTION_ADD) { SubscriptionAddScreen(navController) }
+                        // Серверы и редактор сервера — настоящие экраны (срез 5, issue #1).
+                        composable(Routes.SERVERS) { ServersScreen(navController) }
+                        composable(
+                            route = "${Routes.SERVER_EDITOR}?id={id}&protocol={protocol}",
+                            arguments = listOf(
+                                navArgument("id") {
+                                    type = NavType.StringType
+                                    defaultValue = ""
+                                },
+                                navArgument("protocol") {
+                                    type = NavType.StringType
+                                    defaultValue = "vless"
+                                },
+                            ),
+                        ) { backStackEntry ->
+                            ServerEditorScreen(
+                                navController = navController,
+                                serverId = backStackEntry.arguments
+                                    ?.getString("id")?.takeIf { it.isNotEmpty() },
+                                protocolArg = backStackEntry.arguments?.getString("protocol"),
+                            )
+                        }
                         for (spec in Routes.stubs) {
                             composable(spec.route) { StubScreen(spec) }
                         }

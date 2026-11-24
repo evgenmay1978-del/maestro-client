@@ -55,6 +55,8 @@ data class ParsedServer(
     val singBoxOutbound: JsonObject?,
     /** Xray outbound как есть, только для XHTTP_RUNNER (параметры раннера). */
     val xrayOutbound: JsonObject?,
+    /** sing-box endpoint (только WireGuard: в 1.14 это endpoint, не outbound). */
+    val singBoxEndpoint: JsonObject? = null,
 )
 
 data class ParseIssue(

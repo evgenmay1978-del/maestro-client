@@ -48,10 +48,17 @@ object Routes {
     const val IMPORT_CLIPBOARD = "import_clipboard"
     const val QR_SCAN = "qr_scan"
 
+    // Редактор сервера — настоящий экран с аргументами (срез 5, issue #1).
+    fun serverEditorRoute(id: String?, protocol: String?): String {
+        val params = listOfNotNull(
+            id?.let { "id=$it" },
+            protocol?.let { "protocol=$it" },
+        ).joinToString("&")
+        return if (params.isEmpty()) SERVER_EDITOR else "$SERVER_EDITOR?$params"
+    }
+
     // Все экраны-заглушки (карта Happ §1–§8; 32 своих экрана, 27 полностью описаны).
     val stubs: List<ScreenSpec> = listOf(
-        ScreenSpec(SERVERS, "Серверы", "карта §1", "список серверов и групп, выбор сервера, пинг"),
-        ScreenSpec(SERVER_EDITOR, "Редактор сервера", "карта §2", "формы по протоколам VLESS/VMess/Trojan/SS/SOCKS/WireGuard/Hysteria2"),
         ScreenSpec(SERVER_CUSTOM_CONFIG, "Произвольный конфиг", "карта §2.7", "полный Xray/sing-box JSON, предупреждение о несохранённом"),
         ScreenSpec(SUBSCRIPTION_PROPERTIES, "Свойства подписки", "карта §3", "таймаут, User-Agent, автообновление, autoswitch"),
         ScreenSpec(SETTINGS_ADVANCED, "Продвинутые настройки", "карта §4", "порты inbound, Local DNS, sniffing, mux, фрагментация, шумы"),

@@ -72,6 +72,45 @@
     <string name="server_build_failed">Не удалось собрать конфиг: %1$s</string>
     <string name="done">Готово</string>
 
+    <!-- Редактор сервера (срез 5, issue #1) -->
+    <string name="server_add">Добавить сервер</string>
+    <string name="server_edit_title">Редактировать сервер</string>
+    <string name="server_edit">Изменить</string>
+    <string name="server_delete">Удалить</string>
+    <string name="server_deleted">Сервер удалён: %1$s</string>
+    <string name="server_save">Сохранить</string>
+    <string name="servers_empty">Ручных серверов нет. Добавьте сервер вручную или добавьте подписку.</string>
+    <string name="server_protocol">Протокол</string>
+    <string name="server_name">Имя</string>
+    <string name="server_address">Адрес</string>
+    <string name="server_port">Порт</string>
+    <string name="server_password">Пароль</string>
+    <string name="server_password_optional">Пароль (необязательно)</string>
+    <string name="server_username_optional">Пользователь (необязательно)</string>
+    <string name="server_transport">Транспорт</string>
+    <string name="server_path">Путь (Path)</string>
+    <string name="server_security">Безопасность потока</string>
+    <string name="server_fingerprint">Отпечаток (uTLS)</string>
+    <string name="server_allow_insecure">Разрешить недоверенный сертификат</string>
+    <string name="server_vmess_security">Шифрование (security)</string>
+    <string name="server_ss_method">Метод шифрования</string>
+    <string name="server_mux_enable">Включить Mux</string>
+    <string name="server_mux_concurrency">Mux: одновременных соединений</string>
+    <string name="server_wg_public_key">Публичный ключ</string>
+    <string name="server_wg_private_key">Приватный ключ</string>
+    <string name="server_wg_preshared_key">PreSharedKey (необязательно)</string>
+    <string name="server_wg_local_address">Локальный адрес (через запятую)</string>
+    <string name="server_wg_allowed_ips">Allowed IPs (через запятую)</string>
+    <string name="server_wg_reserved">Reserved (например 0,0,0)</string>
+    <string name="server_hy2_up">Скорость отдачи (Мбит/с)</string>
+    <string name="server_hy2_down">Скорость загрузки (Мбит/с)</string>
+    <string name="server_hy2_obfs">Obfs-пароль (salamander)</string>
+    <string name="server_hy2_hop_ports">Port Hopping: порты</string>
+    <string name="server_hy2_hop_interval">Port Hopping: интервал</string>
+    <string name="server_hy2_udp_timeout">UDP idle timeout (с)</string>
+    <string name="server_hy2_note">Port Hopping и UDP idle timeout пока не поддерживаются sing-box 1.14.4: заполненные поля не дадут сохранить сервер.</string>
+    <string name="server_xhttp_note">XHTTP-узел пойдёт через Xray-раннер, как узлы подписок: в sing-box конфиг ставится SOCKS-стаб, а параметры — в манифест раннера.</string>
+
     <!-- Типы профилей (TypedProfile.Type.getString, срез 2) -->
     <string name="profile_type_local">Локальный</string>
     <string name="profile_type_remote">Удалённый</string>
