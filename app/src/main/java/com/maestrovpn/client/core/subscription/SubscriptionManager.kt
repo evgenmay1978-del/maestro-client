@@ -32,6 +32,10 @@ data class SubscriptionInfo(
     val url: String,
     val lastUpdatedMillis: Long,
     val fileName: String,
+    val updateIntervalHours: Int? = null,
+    val supportUrl: String? = null,
+    val webPageUrl: String? = null,
+    val expire: Long? = null,
 )
 
 enum class DownloadVia { DIRECT, CDN }
@@ -42,6 +46,7 @@ sealed class DownloadResult {
         val via: DownloadVia,
         /** Что пробовали, по порядку — для диагностики в сообщении об ошибке. */
         val attempts: List<String>,
+        val headers: SubscriptionHeaders = SubscriptionHeaders(),
     ) : DownloadResult()
 
     data class Failed(val reason: String) : DownloadResult()
@@ -106,7 +111,9 @@ class SubscriptionManager(
     }
 
     /** Одно скачивание без фолбэка. Исключение всегда с непустым текстом. */
-    fun download(url: String): Result<String> = runCatching {
+    data class Downloaded(val content: String, val headers: SubscriptionHeaders)
+
+    fun download(url: String): Result<Downloaded> = runCatching {
         val conn = (URL(url).openConnection() as HttpURLConnection).apply {
             connectTimeout = TIMEOUT_MS
             readTimeout = TIMEOUT_MS
@@ -119,11 +126,12 @@ class SubscriptionManager(
             if (code !in 200..299) {
                 throw java.io.IOException("HTTP $code")
             }
+            val headers = SubscriptionHeaders.parse(conn.headerFields)
             val bytes = conn.inputStream.use { it.readBytes() }
             if (bytes.size > MAX_BYTES) {
                 throw java.io.IOException("Подписка больше ${MAX_BYTES / 1024 / 1024} МБ")
             }
-            String(bytes, Charsets.UTF_8)
+            Downloaded(String(bytes, Charsets.UTF_8), headers)
         } finally {
             conn.disconnect()
         }
@@ -140,7 +148,8 @@ class SubscriptionManager(
         val attempts = ArrayList<String>()
         val direct = download(url)
         if (direct.isSuccess) {
-            return DownloadResult.Ok(direct.getOrThrow(), DownloadVia.DIRECT, attempts)
+            val value = direct.getOrThrow()
+            return DownloadResult.Ok(value.content, DownloadVia.DIRECT, attempts, value.headers)
         }
         val directError = direct.exceptionOrNull()
         attempts += "напрямую: " + describeError(directError)
@@ -154,7 +163,8 @@ class SubscriptionManager(
         }
         val viaCdn = download(fallbackUrl)
         if (viaCdn.isSuccess) {
-            return DownloadResult.Ok(viaCdn.getOrThrow(), DownloadVia.CDN, attempts)
+            val value = viaCdn.getOrThrow()
+            return DownloadResult.Ok(value.content, DownloadVia.CDN, attempts, value.headers)
         }
         attempts += "через CDN: " + describeError(viaCdn.exceptionOrNull())
         return DownloadResult.Failed(
@@ -212,7 +222,11 @@ class SubscriptionManager(
         saveParsed(
             info = SubscriptionInfo(
                 id = java.util.UUID.randomUUID().toString(),
-                name = name.ifBlank { trimmedUrl },
+                name = name.ifBlank { downloaded.headers.title ?: trimmedUrl },
+                updateIntervalHours = downloaded.headers.updateIntervalHours,
+                supportUrl = downloaded.headers.supportUrl,
+                webPageUrl = downloaded.headers.webPageUrl,
+                expire = downloaded.headers.expire,
                 url = trimmedUrl,
                 lastUpdatedMillis = System.currentTimeMillis(),
                 fileName = java.util.UUID.randomUUID().toString() + ".txt",
@@ -230,7 +244,13 @@ class SubscriptionManager(
         }
         downloaded as DownloadResult.Ok
         saveParsed(
-            info = info.copy(lastUpdatedMillis = System.currentTimeMillis()),
+            info = info.copy(
+                lastUpdatedMillis = System.currentTimeMillis(),
+                updateIntervalHours = downloaded.headers.updateIntervalHours ?: info.updateIntervalHours,
+                supportUrl = downloaded.headers.supportUrl ?: info.supportUrl,
+                webPageUrl = downloaded.headers.webPageUrl ?: info.webPageUrl,
+                expire = downloaded.headers.expire ?: info.expire,
+            ),
             content = downloaded.content,
             via = downloaded.via,
         )
