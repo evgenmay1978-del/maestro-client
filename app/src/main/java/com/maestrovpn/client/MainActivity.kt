@@ -24,7 +24,13 @@ import com.maestrovpn.client.ui.screens.AboutScreen
 import com.maestrovpn.client.ui.screens.DashboardScreen
 import com.maestrovpn.client.ui.screens.ServerEditorScreen
 import com.maestrovpn.client.ui.screens.ServersScreen
+import com.maestrovpn.client.ui.screens.RoutingProfileScreen
+import com.maestrovpn.client.ui.screens.RoutingRulesScreen
+import com.maestrovpn.client.ui.screens.RoutingSettingsEditScreen
+import com.maestrovpn.client.ui.screens.RoutingSettingsEditSearchScreen
+import com.maestrovpn.client.ui.screens.RoutingSettingsScreen
 import com.maestrovpn.client.ui.screens.SettingsScreen
+import com.maestrovpn.client.ui.screens.SubRoutingScreen
 import com.maestrovpn.client.ui.screens.StubScreen
 import com.maestrovpn.client.ui.screens.SubscriptionAddScreen
 import com.maestrovpn.client.ui.screens.SubscriptionsScreen
@@ -32,6 +38,11 @@ import com.maestrovpn.client.ui.theme.MaestroClientTheme
 
 // Главная Activity (срез 1): навигация по всем экранам клиента,
 // системный диалог разрешения VPN, обработка deeplink'ов maestro:// (пока — тост).
+private val ROUTING_ROUTES = setOf(
+    "routing", "routing_edit", "routing_rules", "routing_profile",
+    "sub_routing", "routing_settings_edit_search",
+)
+
 class MainActivity : ComponentActivity() {
     /** Ссылка на навигатор текущего композиции (для deeplink после setContent). */
     private var navControllerRef: androidx.navigation.NavHostController? = null
@@ -111,8 +122,53 @@ class MainActivity : ComponentActivity() {
                                 protocolArg = backStackEntry.arguments?.getString("protocol"),
                             )
                         }
+                        // Маршрутизация — настоящие экраны (issue #2).
+                        composable(Routes.ROUTING) { RoutingSettingsScreen(navController) }
+                        composable(
+                            route = "${Routes.ROUTING_EDIT}?id={id}",
+                            arguments = listOf(
+                                navArgument("id") {
+                                    type = NavType.StringType
+                                    defaultValue = ""
+                                },
+                            ),
+                        ) { backStackEntry ->
+                            val id = backStackEntry.arguments?.getString("id")?.takeIf { it.isNotEmpty() }
+                            RoutingSettingsEditScreen(navController, id)
+                        }
+                        composable(
+                            route = "${Routes.ROUTING_RULES}?id={id}",
+                            arguments = listOf(
+                                navArgument("id") {
+                                    type = NavType.StringType
+                                    defaultValue = ""
+                                },
+                            ),
+                        ) { backStackEntry ->
+                            val id = backStackEntry.arguments?.getString("id")?.takeIf { it.isNotEmpty() }
+                            RoutingRulesScreen(id)
+                        }
+                        composable(
+                            route = "${Routes.ROUTING_PROFILE}?id={id}",
+                            arguments = listOf(
+                                navArgument("id") {
+                                    type = NavType.StringType
+                                    defaultValue = ""
+                                },
+                            ),
+                        ) { backStackEntry ->
+                            val id = backStackEntry.arguments?.getString("id")?.takeIf { it.isNotEmpty() }
+                            RoutingProfileScreen(id)
+                        }
+                        composable(Routes.SUB_ROUTING) { SubRoutingScreen() }
+                        composable(Routes.ROUTING_SETTINGS_EDIT_SEARCH) {
+                            RoutingSettingsEditSearchScreen()
+                        }
+                        // Остальные экраны-заглушки (план функций).
                         for (spec in Routes.stubs) {
-                            composable(spec.route) { StubScreen(spec) }
+                            if (spec.route !in ROUTING_ROUTES) {
+                                composable(spec.route) { StubScreen(spec) }
+                            }
                         }
                     }
                 }

@@ -32,6 +32,7 @@ object Routes {
     const val LOGS_VIEW = "logs_view"
     const val ROUTING = "routing"
     const val ROUTING_EDIT = "routing_edit"
+    const val ROUTING_SETTINGS_EDIT_SEARCH = "routing_search"
     const val ROUTING_RULES = "routing_rules"
     const val ROUTING_PROFILE = "routing_profile"
     const val SUB_ROUTING = "sub_routing"

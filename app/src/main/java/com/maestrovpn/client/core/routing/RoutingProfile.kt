@@ -13,6 +13,8 @@ import kotlinx.serialization.Serializable
 data class RoutingProfile(
     val id: String,
     val name: String,
+    /** null — профиль общий; иначе свой набор правил этой подписки. */
+    val subscriptionId: String? = null,
     /** true — весь трафик через прокси, кроме прямых правил. */
     val globalProxy: Boolean = true,
     val directSites: List<String> = emptyList(),
