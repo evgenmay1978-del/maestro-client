@@ -124,8 +124,11 @@ class XrayEngine : VpnEngine {
                 if (result.exitCode == 0) {
                     true
                 } else {
+                    // Экран показывает одну строку, на диск уходит полный вывод
+                    // ядра: обрезанный хвост 26.11.2026 стоил часа разбора.
                     lastError = result.output.lines().lastOrNull { it.isNotBlank() }
                         ?.take(300) ?: "Invalid Xray config"
+                    writeFailure("проверка конфига (run -test)", result.output, configJson)
                     false
                 }
             } finally {
@@ -154,7 +157,8 @@ class XrayEngine : VpnEngine {
                 configFile.writeText(configJson)
             }
         } catch (e: Exception) {
-            lastError = "Cannot save config: ${e.message}"
+            lastError = "Cannot save config: " + e.message
+            writeFailure("запись конфига", lastError ?: "", configJson)
             return false
         }
         val context: Context = App.application
@@ -167,8 +171,19 @@ class XrayEngine : VpnEngine {
             true
         } catch (e: Exception) {
             lastError = e.message ?: e.javaClass.simpleName
+            writeFailure("запуск службы", lastError ?: "", configJson)
             false
         }
+    }
+
+    /** Отчёт о сбое рядом с конфигом: полный текст, конфиг без секретов, журнал ядра. */
+    private fun writeFailure(stage: String, error: String, configJson: String?) {
+        val dir = runCatching { App.application.filesDir }.getOrNull() ?: return
+        val log = runCatching { logFile() }.getOrNull()
+        val file = XrayDiagnostics.writeFailure(
+            dir, stage, error, configJson, XrayDiagnostics.tail(log),
+        ) ?: return
+        VpnLog.e("отчёт о сбое: " + file.absolutePath)
     }
 
     override fun stop() {
