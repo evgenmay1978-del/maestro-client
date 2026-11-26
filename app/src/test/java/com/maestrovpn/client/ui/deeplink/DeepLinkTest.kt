@@ -41,7 +41,7 @@ class DeepLinkTest {
     @Test
     fun `foreign scheme is null`() {
         assertNull(DeepLink.parse("https://x/y"))
-        assertNull(DeepLink.parse("happ://routing/add/abc"))
+        assertNull(DeepLink.parse("otherapp://routing/add/abc"))
     }
 
     @Test
