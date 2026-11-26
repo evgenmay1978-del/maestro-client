@@ -245,7 +245,10 @@ fun DashboardScreen(
                     connecting = status == EngineStatus.STARTING,
                     onClick = {
                         when {
+                            // Пока идёт подключение кнопка обязана отключать:
+                            // иначе «вечное Подключение…» нечем прервать.
                             connected -> EngineManager.stopService()
+                            status == EngineStatus.STARTING -> EngineManager.stopService()
                             EngineManager.currentConfigJson.isNullOrBlank() -> {
                                 scope.launch {
                                     snackbar.showSnackbar(context.getString(R.string.no_server_selected))
@@ -272,7 +275,7 @@ fun DashboardScreen(
                         fontSize = metrics.sessionFont,
                     )
                 }
-                if (status == EngineStatus.ERROR && statusMessage != null) {
+                if (statusMessage != null && status != EngineStatus.RUNNING) {
                     Text(statusMessage!!, fontSize = metrics.detailFont)
                 }
                 Text(

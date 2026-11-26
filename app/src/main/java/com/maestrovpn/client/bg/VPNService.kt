@@ -11,6 +11,7 @@ import androidx.lifecycle.MutableLiveData
 import com.maestrovpn.client.App
 import com.maestrovpn.client.constant.Alert
 import com.maestrovpn.client.constant.Status
+import com.maestrovpn.client.core.engine.VpnLog
 import com.maestrovpn.client.core.engine.XrayEngine
 import com.maestrovpn.client.core.engine.XrayNative
 import com.maestrovpn.client.database.Settings
@@ -81,6 +82,7 @@ class VPNService : VpnService() {
     override fun onCreate() {
         super.onCreate()
         current = this
+        VpnLog.i("VPNService onCreate")
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -91,10 +93,19 @@ class VPNService : VpnService() {
         if (starting.get() || status.value == Status.Started) return Service.START_STICKY
         val configPath = intent?.getStringExtra(EXTRA_CONFIG_PATH)
             ?: File(filesDir, XrayEngine.CONFIG_FILE_NAME).absolutePath
-        startForeground(
-            XrayNotification.NOTIFICATION_ID,
-            XrayNotification.starting(this, VPNService::class.java),
-        )
+        VpnLog.i("VPNService onStartCommand startId=$startId config=$configPath")
+        try {
+            startForeground(
+                XrayNotification.NOTIFICATION_ID,
+                XrayNotification.starting(this, VPNService::class.java),
+            )
+        } catch (e: Exception) {
+            // Без foreground-уведомления служба жить не может; молча висело бы
+            // «Подключение…» — поэтому причина уходит и в logcat, и в экран.
+            VpnLog.e("startForeground failed", e)
+            fail("Не удалось вывести службу на передний план: ${e.message}")
+            return Service.START_NOT_STICKY
+        }
         status.postValue(Status.Starting)
         scope.launch { startTunnel(configPath) }
         return Service.START_STICKY
@@ -144,9 +155,13 @@ class VPNService : VpnService() {
                 }
             }
 
+            VpnLog.i("tun: address=$host/$prefix mtu=$mtu dns=$DNS_SERVERS")
             tunPfd = builder.establish()
-                ?: throw IllegalStateException("VPN не разрешён или отозван")
+                ?: throw IllegalStateException(
+                    "VPN не разрешён или отозван (возможно, включён другой VPN-клиент)",
+                )
             rawFd = tunPfd.detachFd()
+            VpnLog.i("tun: established fd=$rawFd")
 
             val engine = XrayEngine()
             val binary = engine.binaryFile()
@@ -182,6 +197,7 @@ class VPNService : VpnService() {
                 )
             }
             xrayPid = spawnPid
+            VpnLog.i("ядро запущено pid=$spawnPid")
 
             // Готовность: процесс должен прожить первые секунды. Если конфиг
             // валиден, а tun мёртв — ядро падает сразу, причину видно в логе.
@@ -196,14 +212,24 @@ class VPNService : VpnService() {
             acquireWakeLock()
             Settings.startedByUser = true
             status.postValue(Status.Started)
+            VpnLog.i("туннель поднят, статус Started")
             scope.launch { statsLoop() }
         } catch (e: Exception) {
-            val message = e.message ?: e.javaClass.simpleName
-            binder.broadcast { it.onServiceAlert(Alert.CreateService.ordinal, message) }
-            stopTunnel()
+            fail(e.message ?: e.javaClass.simpleName, e)
         } finally {
             starting.set(false)
         }
+    }
+
+    /**
+     * Единая точка отказа старта: причина уходит в logcat, в экран (alert)
+     * и статус немедленно становится Stopped — иначе интерфейс навсегда
+     * остаётся в «Подключение…» и кнопка отключения ничего не делает.
+     */
+    private fun fail(message: String, error: Throwable? = null) {
+        VpnLog.e("не удалось поднять туннель: $message", error)
+        binder.broadcast { it.onServiceAlert(Alert.CreateService.ordinal, message) }
+        stopTunnel()
     }
 
     private suspend fun statsLoop() {
@@ -238,25 +264,35 @@ class VPNService : VpnService() {
     /** Идемпотентная остановка: SIGTERM, пауза, SIGKILL, снятие foreground. */
     fun stopTunnel() {
         if (!stopping.compareAndSet(false, true)) return
-        status.postValue(Status.Stopping)
+        // Stopped выставляем ДО уборки и синхронно: если служба умрёт раньше,
+        // чем колбэк дойдёт до приложения, экран останется в «Подключение…»
+        // (ровно это и случилось 26.11.2026). Status.Stopping в UI не шлём —
+        // он отображается как «Подключение…» и путает.
+        status.postValue(Status.Stopped)
+        VpnLog.i("VPNService stopTunnel")
         scope.launch {
-            val pid = xrayPid
-            if (pid > 0) {
-                XrayNative.nativeSignal(pid, XrayNative.SIGTERM)
-                val deadline = System.currentTimeMillis() + STOP_GRACE_MS
-                while (System.currentTimeMillis() < deadline && XrayNative.nativeIsAlive(pid)) {
-                    delay(100)
+            try {
+                val pid = xrayPid
+                if (pid > 0) {
+                    XrayNative.nativeSignal(pid, XrayNative.SIGTERM)
+                    val deadline = System.currentTimeMillis() + STOP_GRACE_MS
+                    while (System.currentTimeMillis() < deadline && XrayNative.nativeIsAlive(pid)) {
+                        delay(100)
+                    }
+                    if (XrayNative.nativeIsAlive(pid)) {
+                        XrayNative.nativeSignal(pid, XrayNative.SIGKILL)
+                    }
                 }
-                if (XrayNative.nativeIsAlive(pid)) {
-                    XrayNative.nativeSignal(pid, XrayNative.SIGKILL)
-                }
+                monitorThread?.join(1_000)
+                releaseWakeLock()
+            } finally {
+                stopForeground(STOP_FOREGROUND_REMOVE)
+                // Пауза перед stopSelf: broadcast статуса идёт на Main и не
+                // успевает уйти, если служба исчезнет сразу.
+                delay(300)
+                VpnLog.i("VPNService stopSelf")
+                stopSelf()
             }
-            monitorThread?.join(1_000)
-            releaseWakeLock()
-            status.postValue(Status.Stopped)
-            stopForeground(STOP_FOREGROUND_REMOVE)
-            stopSelf()
-            scope.cancel()
         }
     }
 
@@ -302,8 +338,14 @@ class VPNService : VpnService() {
     }
 
     override fun onDestroy() {
+        VpnLog.i("VPNService onDestroy")
         if (current === this) current = null
         stopTunnel()
+        // Scope гасим только при реальном уничтожении службы. Раньше он
+        // отменялся в stopTunnel(), а служба оставалась живой из-за
+        // bindService(BIND_AUTO_CREATE) — и следующая попытка включить VPN
+        // навсегда зависала в «Подключение…» (нашлось 26.11.2026).
+        scope.cancel()
         binder.close()
         super.onDestroy()
     }
