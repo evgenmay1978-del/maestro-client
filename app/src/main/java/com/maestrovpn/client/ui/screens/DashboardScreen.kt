@@ -429,6 +429,22 @@ fun DashboardScreen(
                         fontSize = metrics.buttonTextFont,
                     )
                 }
+                if (metrics.isTv) {
+                    // Перенос подписки с телефона: ТВ показывает QR, телефон отправляет
+                    // подписку по локальной сети (issue #6).
+                    Spacer(Modifier.height(12.dp))
+                    OutlinedButton(
+                        modifier = Modifier.fillMaxWidth().height(metrics.buttonHeight),
+                        onClick = { navController.navigate(Routes.TRANSFER_RECEIVE) },
+                    ) {
+                        Text(
+                            stringResource(R.string.receive_action),
+                            maxLines = 1,
+                            softWrap = false,
+                            fontSize = metrics.buttonTextFont,
+                        )
+                    }
+                }
                 Spacer(Modifier.height(20.dp))
                 SectionCaption(stringResource(R.string.dashboard_contact), metrics.captionFont)
                 Spacer(Modifier.height(8.dp))
@@ -445,6 +461,7 @@ fun DashboardScreen(
  * TextUnit.Unspecified = размер из темы (значит «не переопределять»).
  */
 private data class DashboardMetrics(
+    val isTv: Boolean,
     val horizontalPadding: Dp,
     val coinSize: Dp,
     val titleFont: TextUnit,
@@ -465,6 +482,7 @@ private fun dashboardMetrics(): DashboardMetrics {
     val isTv = uiMode and Configuration.UI_MODE_TYPE_MASK == Configuration.UI_MODE_TYPE_TELEVISION
     return if (isTv) {
         DashboardMetrics(
+            isTv = true,
             horizontalPadding = 48.dp,
             coinSize = 280.dp,
             titleFont = 28.sp,
@@ -480,6 +498,7 @@ private fun dashboardMetrics(): DashboardMetrics {
         )
     } else {
         DashboardMetrics(
+            isTv = false,
             horizontalPadding = 20.dp,
             coinSize = 220.dp,
             titleFont = TextUnit.Unspecified,

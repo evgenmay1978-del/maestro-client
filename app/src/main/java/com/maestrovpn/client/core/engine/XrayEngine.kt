@@ -95,7 +95,10 @@ class XrayEngine : VpnEngine {
     override fun validateConfig(configJson: String): Boolean {
         lastError = null
         val binary = binaryFile() ?: run {
-            lastError = "Xray binary not found"
+            // Точный путь в сообщении: без него не отличить пустой nativeLibraryDir
+            // (extractNativeLibs=false) от битого APK.
+            val dir = (app ?: App.application).applicationInfo.nativeLibraryDir
+            lastError = "бинарь ядра $BINARY_NAME не найден в $dir"
             return false
         }
         // Геоданные (§8): Xray ищет geoip.dat/geosite.dat рядом с бинарём ядра.

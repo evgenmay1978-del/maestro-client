@@ -148,4 +148,33 @@
     <string name="advanced_saved">Сохранено</string>
     <string name="advanced_reset_done">Сброшено к значениям по умолчанию</string>
     <string name="advanced_back">Назад</string>
+<!-- Перенос подписки: QR-сканер и приём на ТВ (issue #6) -->
+    <string name="scanner_title">Сканировать QR</string>
+    <string name="scanner_hint">Наведите камеру на QR-код: адрес приёма на ТВ или ссылка на подписку</string>
+    <string name="scanner_no_camera">На этом устройстве нет камеры — добавьте подписку вручную</string>
+    <string name="scanner_permission">Нужен доступ к камере, чтобы прочитать QR-код</string>
+    <string name="scanner_permission_button">Разрешить камеру</string>
+    <string name="scanner_unknown">Не распознано: %1$s</string>
+    <string name="scanner_rescan">Сканировать снова</string>
+    <string name="scanner_server_link">Ссылка на сервер скопирована — вставьте её в редакторе сервера</string>
+    <string name="receive_action">Принять с телефона</string>
+    <string name="receive_title">Принять подписку с телефона</string>
+    <string name="receive_hint">Откройте Maestro Client на телефоне → «QR-код» → наведите камеру на код ниже. Телефон и это устройство должны быть в одной сети Wi-Fi.</string>
+    <string name="receive_address">Адрес приёма: %1$s</string>
+    <string name="receive_waiting">Ждём подписку…</string>
+    <string name="receive_received">Подписка «%1$s» получена: серверов %2$d</string>
+    <string name="receive_received_unnamed">Подписка получена: серверов %1$d</string>
+    <string name="receive_failed">Не принято: %1$s</string>
+    <string name="receive_no_network">Не видно адреса локальной сети — проверьте Wi-Fi</string>
+    <string name="receive_port_failed">Не удалось открыть порт приёма: %1$s</string>
+    <string name="send_title">Отправить подписку на ТВ</string>
+    <string name="send_address">Приёмник: %1$s</string>
+    <string name="send_choose">Выберите подписку</string>
+    <string name="send_empty">Подписок пока нет — сначала добавьте её на телефоне</string>
+    <string name="send_button">Отправить</string>
+    <string name="send_ok">Отправлено: серверов %1$d</string>
+    <string name="send_ok_unknown">Отправлено</string>
+    <string name="send_refused">Приёмник отказал: %1$s</string>
+    <string name="send_failed">Не отправлено: %1$s</string>
+    <string name="send_sending">Отправляем…</string>
 </resources>

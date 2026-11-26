@@ -47,6 +47,9 @@ object Routes {
     const val APP_UPDATE = "app_update"
     const val IMPORT_CLIPBOARD = "import_clipboard"
     const val QR_SCAN = "qr_scan"
+    // Перенос подписки с телефона на ТВ (issue #6).
+    const val TRANSFER_RECEIVE = "transfer_receive"
+    const val TRANSFER_SEND = "transfer_send"
 
     // Редактор сервера — настоящий экран с аргументами (срез 5, issue #1).
     fun serverEditorRoute(id: String?, protocol: String?): String {
@@ -86,6 +89,5 @@ object Routes {
         ScreenSpec(RESET, "Сброс", "карта §8.8", "сброс настроек / полный сброс приложения"),
         ScreenSpec(APP_UPDATE, "Обновление приложения", "карта §8.9", "свой OTA (панель + зеркало), не GitHub/F-Droid"),
         ScreenSpec(IMPORT_CLIPBOARD, "Импорт из буфера", "карта §1.1", "вставка конфига/ссылки из буфера обмена"),
-        ScreenSpec(QR_SCAN, "Сканирование QR", "карта §8.1", "QR-сканер для импорта сервера/подписки"),
     )
 }

@@ -272,9 +272,12 @@ class SubscriptionManager(
         // снова проверяется движком — импорт от состояния настроек не зависит.
         val built = XrayConfigBuilder.build(parsed.servers, selectedTag = null)
         if (!engine.validateConfig(built.configJson)) {
+            // Причина обязана дойти до пользователя: без неё «Xray отклонил
+            // конфиг» не отличить от «бинарь ядра не найден» (дефект 26.11.2026).
+            val reason = engine.lastError?.takeIf { it.isNotBlank() } ?: "причина не сообщена"
             return ImportResult.Failure(
-                "Собранный конфиг не прошёл проверку движка " +
-                    "(${parsed.servers.size} серверов распознано, но Xray отклонил конфиг)",
+                "Собранный конфиг не прошёл проверку движка: " +
+                    "$reason (${parsed.servers.size} серверов распознано)",
             )
         }
         saveRaw(info, content)
@@ -343,7 +346,10 @@ class SubscriptionManager(
                 advanced = AdvancedSettings.snapshot(),
             )
             if (!engine.validateConfig(built.configJson)) {
-                throw IllegalStateException("Собранный конфиг не прошёл проверку движка")
+                throw IllegalStateException(
+                    "Собранный конфиг не прошёл проверку движка: " +
+                        (engine.lastError?.takeIf { it.isNotBlank() } ?: "причина не сообщена"),
+                )
             }
             built.configJson
         }

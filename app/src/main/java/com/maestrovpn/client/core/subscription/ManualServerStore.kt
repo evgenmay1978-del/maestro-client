@@ -54,7 +54,8 @@ class ManualServerStore(
         // при подключении (buildConfigFor) и там же валидируются движком.
         val built = XrayConfigBuilder.build(listOf(parsed), parsed.tag)
         if (!engine.validateConfig(built.configJson)) {
-            return "Собранный конфиг не прошёл проверку движка"
+            return "Собранный конфиг не прошёл проверку движка: " +
+                (engine.lastError?.takeIf { it.isNotBlank() } ?: "причина не сообщена")
         }
         val updated = list().filterNot { it.id == server.id } + server
         writeIndex(updated)
@@ -92,7 +93,10 @@ class ManualServerStore(
                 advanced = AdvancedSettings.snapshot(),
             )
             if (!engine.validateConfig(built.configJson)) {
-                throw IllegalStateException("Собранный конфиг не прошёл проверку движка")
+                throw IllegalStateException(
+                    "Собранный конфиг не прошёл проверку движка: " +
+                        (engine.lastError?.takeIf { it.isNotBlank() } ?: "причина не сообщена"),
+                )
             }
             built.configJson
         }
