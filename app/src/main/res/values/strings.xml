@@ -42,7 +42,6 @@
     <string name="about_title">О приложении</string>
     <string name="about_version">Версия приложения</string>
     <string name="about_engine">Ядро</string>
-    <string name="about_engine_stub">sing-box — не подключён (срез 1)</string>
     <string name="about_device">Устройство</string>
 
     <!-- Подписка -->
@@ -56,7 +55,6 @@
     <string name="sub_downloading">Загрузка подписки…</string>
     <string name="sub_saved">Подписка сохранена</string>
     <string name="sub_saved_count">Подписка сохранена: %1$d серверов</string>
-    <string name="sub_saved_raw">Подписка сохранена (готовый sing-box конфиг)</string>
     <string name="sub_via_direct">загружено напрямую</string>
     <string name="sub_via_cdn">загружено через CDN</string>
     <string name="sub_issues">Не распознано: %1$s</string>
@@ -108,13 +106,10 @@
     <string name="server_hy2_hop_ports">Port Hopping: порты</string>
     <string name="server_hy2_hop_interval">Port Hopping: интервал</string>
     <string name="server_hy2_udp_timeout">UDP idle timeout (с)</string>
-    <string name="server_hy2_note">Port Hopping и UDP idle timeout пока не поддерживаются sing-box 1.14.4: заполненные поля не дадут сохранить сервер.</string>
-    <string name="server_xhttp_note">XHTTP-узел пойдёт через Xray-раннер, как узлы подписок: в sing-box конфиг ставится SOCKS-стаб, а параметры — в манифест раннера.</string>
 
     <!-- Типы профилей (TypedProfile.Type.getString, срез 2) -->
     <string name="profile_type_local">Локальный</string>
     <string name="profile_type_remote">Удалённый</string>
 
-    <string name="engine_not_bundled">Движок sing-box ещё не подключён в этой сборке (срез 1)</string>
     <string name="no_server_selected">Сначала выберите сервер</string>
 </resources>

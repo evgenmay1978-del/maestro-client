@@ -313,15 +313,6 @@ fun DashboardScreen(
                             }
                             if (parsed != null) {
                                 when {
-                                    parsed.format == SubscriptionFormat.SING_BOX_CONFIG -> {
-                                        // Xray не запускает sing-box JSON (срез 7, issue #8):
-                                        // подписка показана, но выбрать её нельзя.
-                                        Text(
-                                            "Формат sing-box не поддерживается",
-                                            fontSize = 12.sp,
-                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                        )
-                                    }
                                     parsed.servers.isEmpty() -> {
                                         Text(
                                             stringResource(R.string.sub_invalid),

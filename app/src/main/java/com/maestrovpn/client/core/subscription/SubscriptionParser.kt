@@ -26,9 +26,8 @@ import java.net.URLDecoder
 //  - base64-списки ссылок (как отдаёт панель в ?format=links);
 //  - смешанный формат: ссылки + строки маршрутизации/метаданные (не-ссылки
 //    пропускаются, считаются в ignoredLines);
-//  - готовый JSON конфиг другого ядра — только ОПРЕДЕЛЯЕТСЯ как формат
-//    SING_BOX_CONFIG (поле singBoxConfig); исполнять его нечем — движок
-//    отклоняет такие подписки позже (не часть парсера).
+//  - JSON без распознаваемых Xray outbounds — отказ с причиной: чужой
+//    формат (не Xray) клиент не запускает.
 // Что НЕ понимается (честно, с причиной в issues):
 //  - WireGuard-ссылки и TUIC-ссылки: Xray-core не реализует TUIC ни в одной
 //    версии, а WireGuard-ссылки не несут полных параметров Xray wireguard
@@ -57,7 +56,6 @@ data class ParseIssue(
 )
 
 enum class SubscriptionFormat {
-    SING_BOX_CONFIG,
     XRAY,
     LINKS,
     BASE64_LINKS,
@@ -70,8 +68,6 @@ data class ParsedSubscription(
     val servers: List<ParsedServer>,
     val issues: List<ParseIssue>,
     val ignoredLines: Int,
-    /** Готовый конфиг другого ядра, только при format == SING_BOX_CONFIG. */
-    val singBoxConfig: String? = null,
 )
 
 object SubscriptionParser {
@@ -127,24 +123,22 @@ object SubscriptionParser {
             )
         }
         val first = outbounds.firstOrNull() as? JsonObject
-        // Xray outbound узнаётся по "protocol"/"streamSettings",
-        // конфиг другого ядра — по "type".
+        // Xray outbound узнаётся по "protocol"/"streamSettings".
         val isXray = first != null &&
             (first.containsKey("streamSettings") || first.containsKey("protocol"))
-        return if (isXray) {
-            val (server, issue) = parseXrayConfig(root, TagScope())
-            if (server != null) {
-                ParsedSubscription(SubscriptionFormat.XRAY, listOf(server), emptyList(), 0)
-            } else {
-                ParsedSubscription(
-                    SubscriptionFormat.XRAY, emptyList(),
-                    listOf(issue ?: ParseIssue("Xray", "пустой конфиг")), 0,
-                )
-            }
+        if (!isXray) {
+            return ParsedSubscription(
+                SubscriptionFormat.UNKNOWN, emptyList(),
+                listOf(ParseIssue("JSON", "в объекте нет Xray outbounds — это не конфиг этого клиента")), 0,
+            )
+        }
+        val (server, issue) = parseXrayConfig(root, TagScope())
+        return if (server != null) {
+            ParsedSubscription(SubscriptionFormat.XRAY, listOf(server), emptyList(), 0)
         } else {
             ParsedSubscription(
-                SubscriptionFormat.SING_BOX_CONFIG, emptyList(), emptyList(), 0,
-                singBoxConfig = text,
+                SubscriptionFormat.XRAY, emptyList(),
+                listOf(issue ?: ParseIssue("Xray", "пустой конфиг")), 0,
             )
         }
     }

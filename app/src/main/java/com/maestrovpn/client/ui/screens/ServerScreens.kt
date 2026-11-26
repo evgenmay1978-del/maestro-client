@@ -386,11 +386,6 @@ fun ServerEditorScreen(navController: NavController, serverId: String?, protocol
                     value = server.udpIdleTimeout,
                     onChange = { v -> update { it.copy(udpIdleTimeout = v) } },
                 )
-                Text(
-                    stringResource(R.string.server_hy2_note),
-                    fontSize = 12.sp,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
             }
         }
 
@@ -443,11 +438,6 @@ fun ServerEditorScreen(navController: NavController, serverId: String?, protocol
                     label = "FinalMask (JSON)",
                     value = server.finalMask,
                     onChange = { v -> update { it.copy(finalMask = v) } },
-                )
-                Text(
-                    stringResource(R.string.server_xhttp_note),
-                    fontSize = 12.sp,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
         }

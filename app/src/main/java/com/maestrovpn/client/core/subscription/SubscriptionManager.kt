@@ -242,15 +242,6 @@ class SubscriptionManager(
         via: DownloadVia,
     ): ImportResult {
         val parsed = SubscriptionParser.parse(content)
-        if (parsed.format == SubscriptionFormat.SING_BOX_CONFIG) {
-            // Xray не умеет запускать чужой JSON (это не его формат):
-            // явный отказ вместо битого конфига. Конвертер sing-box→Xray —
-            // отдельная задача, не этот срез.
-            return ImportResult.Failure(
-                "Подписка в формате sing-box не поддерживается: " +
-                    "клиент работает только на Xray (ссылки, Xray JSON)",
-            )
-        }
         if (parsed.servers.isEmpty()) {
             return ImportResult.Failure(noServersReason(parsed))
         }
@@ -317,12 +308,6 @@ class SubscriptionManager(
     fun buildConfigFor(info: SubscriptionInfo, selectedTag: String?): Result<String> =
         runCatching {
             val parsed = servers(info)
-            if (parsed.format == SubscriptionFormat.SING_BOX_CONFIG) {
-                throw IllegalStateException(
-                    "Подписка в формате sing-box не поддерживается: " +
-                        "клиент работает только на Xray (ссылки, Xray JSON)",
-                )
-            }
             if (parsed.servers.isEmpty()) {
                 throw IllegalStateException(noServersReason(parsed))
             }

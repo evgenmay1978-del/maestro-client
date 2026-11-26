@@ -161,7 +161,7 @@ fun SubscriptionsScreen(navController: NavController) {
 
 // Добавление подписки (срез 3, движок Xray с среза 7): URL → скачать (прямо,
 // при ошибке — через CDN) → распарсить (ссылки / base64 / Xray JSON;
-// sing-box JSON определяется и отклоняется) → проверить движком → сохранить.
+// чужой JSON определяется и отклоняется) → проверить движком → сохранить.
 // Причина ошибки всегда показывается полностью; пустая причина
 // недопустима (дефект среза 2).
 @Composable
@@ -203,11 +203,7 @@ fun SubscriptionAddScreen(navController: NavController) {
                     message = when (result) {
                         is com.maestrovpn.client.core.subscription.ImportResult.Success -> {
                             saved = true
-                            val base = if (result.servers >= 0) {
-                                context.getString(R.string.sub_saved_count, result.servers)
-                            } else {
-                                context.getString(R.string.sub_saved_raw)
-                            }
+                            val base = context.getString(R.string.sub_saved_count, result.servers)
                             val via = context.getString(
                                 when (result.via) {
                                     com.maestrovpn.client.core.subscription.DownloadVia.DIRECT ->
