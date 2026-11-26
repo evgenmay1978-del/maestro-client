@@ -1,11 +1,11 @@
 # Maestro Client — отдельный standalone VPN-клиент
 
-Полный клон Happ по поведению, интерфейс — как у MaestroVPN.
+Функциональный аналог клиента 4.11.2 по протоколам, подпискам и функциям; интерфейс — как у MaestroVPN.
 **Это НЕ обновление MaestroVPN 1.0.212** — отдельный пакет `com.maestrovpn.client`,
 существующее приложение не трогается.
 
 Единственные внешние ссылки в приложении — бот `@MaestroSecureVPN_bot`
-и личный Telegram `@wapmixx`. Никаких `happ.su`, `t.me/happ_*`, Firebase/Sentry.
+и личный Telegram `@wapmixx`. Никаких сторонних сервисов (Firebase/Sentry нет).
 
 ## Срез 1 — каркас + первая сборка
 
@@ -15,12 +15,12 @@
 - Главный экран: монета (заглушка среза 1 — точное поведение переносится
   из `MonogramMedallion.kt` следующим срезом, см. отчёт среза 1 §1.1), кнопка питания,
   статус, время сессии, список подписок, кнопки Telegram.
-- Навигация по всем 32 экранам Happ из карты (`happ-4.11.2-map.md`):
+- Навигация по всем 32 экранам клиента-прототипа:
   главный — настоящий, настройки/About — настоящие списки, остальные — заглушки.
 - Подписки: загрузка по URL + validate-before-save + атомарная запись
   (`core/subscription/SubscriptionManager.kt`).
 - VPN-служба (`bg/ClientVpnService.kt`), QS-плитка, BootReceiver, deeplink `maestro://`.
-- Движок: Xray-core (`XrayEngine`, срез 7, issue #8) — единственный, как в Happ.
+- Движок: Xray-core (`XrayEngine`, срез 7, issue #8) — единственное ядро.
   Бинарь `libmaestro_subxhttp.so` (arm64-v8a + armeabi-v7a) в `jniLibs/`;
   запуск — нативный fork/exec (`XrayNative`, см. `src/main/cpp/xray_spawn.c`),
   TUN — через Xray tun inbound, режим «только прокси» — SOCKS :10808 + HTTP :10809.
@@ -58,7 +58,5 @@ JNI-лаунчера `xrayspawn` (`src/main/cpp/xray_spawn.c`, ndk-build, без
 
 ## Документы
 
-- Карта Happ: `~/workspace/maestro-study/happ-4.11.2-map.md`
-- Таблица соответствия: `~/workspace/maestro-study/happ-maestro-mapping.md`
 - Обзор ядра Maestro: `~/workspace/maestro-study/maestro-client-core-survey.md`
 - Отчёт среза 1: `~/workspace/maestro-study/maestro-client-slice1.md`

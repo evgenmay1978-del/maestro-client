@@ -25,7 +25,7 @@ import kotlin.concurrent.thread
 /**
  * Режим «только прокси» (срез 7, issue #8): Xray дочерним процессом без
  * VPN и без tun — SOCKS :10808 + HTTP :10809 на 127.0.0.1, как
- * xray_config.json у Happ. Остальное — как в [VPNService]: тот же
+ * xray_config.json. Остальное — как в [VPNService]: тот же
  * нативный спавнер, тот же поток-монитор (waitpid + PR_SET_PDEATHSIG),
  * та же статистика в уведомлении.
  */

@@ -13,7 +13,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import java.io.File
 
 // Единая точка управления VPN (срез 2, переписана в срезе 7, issue #8).
-// Единственный движок — XrayEngine (Xray-core, как в Happ); sing-box/libbox
+// Единственный движок — XrayEngine (Xray-core); libbox сторонних ядер
 // удалён полностью. Статус зеркалится из службы через AIDL-биндинг
 // (ServiceConnection): бинд открывается на старте и закрывается на стопе;
 // постоянного бинда из Application нет (bindService с BIND_AUTO_CREATE

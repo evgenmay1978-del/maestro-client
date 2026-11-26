@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!-- Maestro Client — отдельный standalone VPN-клиент. Срез 1.
-     Никаких ссылок на happ.su / t.me/happ_* и сторонних сервисов (Firebase/Sentry нет).
+     Никаких сторонних сервисов (Firebase/Sentry нет).
      Единственные внешние ссылки — бот @MaestroSecureVPN_bot и личный Telegram @wapmixx. -->
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 

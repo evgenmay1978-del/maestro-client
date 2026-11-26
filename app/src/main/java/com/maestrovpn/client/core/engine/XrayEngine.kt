@@ -15,7 +15,7 @@ import java.io.File
 import java.util.concurrent.TimeUnit
 
 /**
- * Единственный движок клиента — Xray-core (срез 7, issue #8), как в Happ.
+ * Единственный движок клиента — Xray-core (срез 7, issue #8).
  *
  * Бинарь — app/src/main/jniLibs/<abi>/libmaestro_subxhttp.so, запускается
  * дочерним процессом через нативный fork/exec (XrayNative): только так

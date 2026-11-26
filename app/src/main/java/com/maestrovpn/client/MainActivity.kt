@@ -27,7 +27,7 @@ import com.maestrovpn.client.ui.screens.SubscriptionAddScreen
 import com.maestrovpn.client.ui.screens.SubscriptionsScreen
 import com.maestrovpn.client.ui.theme.MaestroClientTheme
 
-// Главная Activity (срез 1): навигация по всем экранам Happ (заглушки),
+// Главная Activity (срез 1): навигация по всем экранам клиента,
 // системный диалог разрешения VPN, обработка deeplink'ов maestro:// (пока — тост).
 class MainActivity : ComponentActivity() {
     private val vpnPrepareLauncher = registerForActivityResult(

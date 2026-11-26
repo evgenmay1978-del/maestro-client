@@ -1,8 +1,7 @@
 package com.maestrovpn.client.ui.navigation
 
-// Маршруты приложения. Срез 1: главный экран — настоящий, остальные экраны Happ
-// из карты (happ-4.11.2-map.md) — заглушки с заголовком и описанием; логика —
-// следующие срезы по таблице соответствия (happ-maestro-mapping.md).
+// Маршруты приложения. Срез 1: главный экран — настоящий, остальные экраны —
+// заглушки с заголовком и описанием; логика — следующие срезы.
 data class ScreenSpec(
     val route: String,
     val title: String,
@@ -57,7 +56,7 @@ object Routes {
         return if (params.isEmpty()) SERVER_EDITOR else "$SERVER_EDITOR?$params"
     }
 
-    // Все экраны-заглушки (карта Happ §1–§8; 32 своих экрана, 27 полностью описаны).
+    // Все экраны-заглушки (32 своих экрана, 27 полностью описаны).
     val stubs: List<ScreenSpec> = listOf(
         ScreenSpec(SERVER_CUSTOM_CONFIG, "Произвольный конфиг", "карта §2.7", "полный Xray JSON, предупреждение о несохранённом"),
         ScreenSpec(SUBSCRIPTION_PROPERTIES, "Свойства подписки", "карта §3", "таймаут, User-Agent, автообновление, autoswitch"),

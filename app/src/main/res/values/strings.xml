@@ -33,7 +33,7 @@
     <!-- Заглушки экранов (срез 1: только навигация, логика — следующие срезы) -->
     <string name="stub_title">Экран в разработке</string>
     <string name="stub_body">Этот экран появится в следующих срезах: здесь будет %1$s.</string>
-    <string name="stub_source">По карте Happ: %1$s</string>
+    <string name="stub_source">По плану функций: %1$s</string>
 
     <!-- Настройки -->
     <string name="settings_title">Настройки</string>

@@ -39,7 +39,7 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 
-// Заглушка экрана (срез 1): заголовок + что здесь будет + ссылка на карту Happ.
+// Заглушка экрана (срез 1): заголовок + что здесь будет + ссылка на план функций.
 @Composable
 fun StubScreen(spec: ScreenSpec) {
     Column(

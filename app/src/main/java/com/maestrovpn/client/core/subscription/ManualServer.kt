@@ -11,7 +11,7 @@ import kotlinx.serialization.json.put
 import java.util.UUID
 
 // Ручной сервер (срез 5, issue #1; переведён на Xray-only ядро в срезе 7).
-// Модель — поля редактора Happ (карта happ-4.11.2-map.md §2) в том объёме,
+// Модель — поля редактора сервера в том объёме,
 // который исполняет ядро Xray-core (таблица соответствия §2).
 //
 // Что отображается в Xray outbound (toParsedServer):

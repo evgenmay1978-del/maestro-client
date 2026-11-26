@@ -243,7 +243,7 @@ class SubscriptionManager(
     ): ImportResult {
         val parsed = SubscriptionParser.parse(content)
         if (parsed.format == SubscriptionFormat.SING_BOX_CONFIG) {
-            // Xray не умеет запускать sing-box JSON (у Happ его тоже нет):
+            // Xray не умеет запускать чужой JSON (это не его формат):
             // явный отказ вместо битого конфига. Конвертер sing-box→Xray —
             // отдельная задача, не этот срез.
             return ImportResult.Failure(

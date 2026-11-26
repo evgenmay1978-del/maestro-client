@@ -10,7 +10,7 @@ enum class EngineStatus {
     ERROR,
 }
 
-// Единственный движок клиента — Xray-core (срез 7, issue #8), как в Happ:
+// Единственный движок клиента — Xray-core (срез 7, issue #8):
 // один нативный бинарь app/src/main/jniLibs/<abi>/libmaestro_subxhttp.so,
 // запуск дочерним процессом через нативный fork/exec (XrayNative).
 // sing-box/libbox удалён полностью: XHTTP он не поддерживает ни в одной
