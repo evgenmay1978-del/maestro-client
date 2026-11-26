@@ -9,3 +9,7 @@ app/libs/
 *.keystore
 .DS_Store
 .kotlin/
+
+# Артефакты тестов: копии геоданных рядом с бинарём
+app/src/main/jniLibs/*/geoip.dat
+app/src/main/jniLibs/*/geosite.dat
