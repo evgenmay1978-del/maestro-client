@@ -2,6 +2,7 @@ package com.maestrovpn.client.core.subscription
 
 import android.content.Context
 import com.maestrovpn.client.core.engine.VpnEngine
+import com.maestrovpn.client.core.settings.AdvancedSettings
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.Serializable
@@ -265,6 +266,10 @@ class SubscriptionManager(
         if (parsed.servers.isEmpty()) {
             return ImportResult.Failure(noServersReason(parsed))
         }
+        // Валидация импорта — на базовых значениях: проверяем, что подписка
+        // вообще собирается в валидный конфиг. Пользовательские продвинутые
+        // настройки применяются при подключении (buildConfigFor), там конфиг
+        // снова проверяется движком — импорт от состояния настроек не зависит.
         val built = XrayConfigBuilder.build(parsed.servers, selectedTag = null)
         if (!engine.validateConfig(built.configJson)) {
             return ImportResult.Failure(
@@ -331,7 +336,12 @@ class SubscriptionManager(
             if (parsed.servers.isEmpty()) {
                 throw IllegalStateException(noServersReason(parsed))
             }
-            val built = XrayConfigBuilder.build(parsed.servers, selectedTag)
+            // Продвинутые настройки (issue #3): DNS, MTU, порты, mux.
+            val built = XrayConfigBuilder.build(
+                servers = parsed.servers,
+                selectedTag = selectedTag,
+                advanced = AdvancedSettings.snapshot(),
+            )
             if (!engine.validateConfig(built.configJson)) {
                 throw IllegalStateException("Собранный конфиг не прошёл проверку движка")
             }

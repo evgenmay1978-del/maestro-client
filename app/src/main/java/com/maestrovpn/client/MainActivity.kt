@@ -21,6 +21,7 @@ import com.maestrovpn.client.core.engine.EngineManager
 import com.maestrovpn.client.ui.deeplink.DeepLink
 import com.maestrovpn.client.ui.navigation.Routes
 import com.maestrovpn.client.ui.screens.AboutScreen
+import com.maestrovpn.client.ui.screens.AdvancedSettingsScreen
 import com.maestrovpn.client.ui.screens.DashboardScreen
 import com.maestrovpn.client.ui.screens.ServerEditorScreen
 import com.maestrovpn.client.ui.screens.ServersScreen
@@ -84,6 +85,7 @@ class MainActivity : ComponentActivity() {
                             )
                         }
                         composable(Routes.SETTINGS) { SettingsScreen(navController) }
+                        composable(Routes.SETTINGS_ADVANCED) { AdvancedSettingsScreen(navController) }
                         composable(Routes.ABOUT) { AboutScreen() }
                         composable(Routes.SUBSCRIPTIONS) { SubscriptionsScreen(navController) }
                         composable(

@@ -61,7 +61,6 @@ object Routes {
     val stubs: List<ScreenSpec> = listOf(
         ScreenSpec(SERVER_CUSTOM_CONFIG, "Произвольный конфиг", "карта §2.7", "полный Xray JSON, предупреждение о несохранённом"),
         ScreenSpec(SUBSCRIPTION_PROPERTIES, "Свойства подписки", "карта §3", "таймаут, User-Agent, автообновление, autoswitch"),
-        ScreenSpec(SETTINGS_ADVANCED, "Продвинутые настройки", "карта §4", "порты inbound, Local DNS, sniffing, mux, фрагментация, шумы"),
         ScreenSpec(SETTINGS_TUNNEL, "Настройки туннеля", "карта §4", "TUN MTU, IP-тип, Fake DNS, Xray TUN"),
         ScreenSpec(SETTINGS_UI, "Интерфейс", "карта §4", "размер шрифта, скорость в уведомлении, live-обновления"),
         ScreenSpec(SETTINGS_LANGUAGE, "Язык", "карта §4", "Auto / English / Русский / 中文 / فارسی"),

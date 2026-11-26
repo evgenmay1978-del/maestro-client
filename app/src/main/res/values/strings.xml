@@ -117,4 +117,35 @@
     <string name="profile_type_remote">Удалённый</string>
 
     <string name="no_server_selected">Сначала выберите сервер</string>
+
+    <!-- Продвинутые настройки (issue #3) -->
+    <string name="advanced_title">Продвинутые настройки</string>
+    <string name="advanced_applies">Применяются при следующем подключении: сборка Xray-конфига читает эти значения.</string>
+    <string name="advanced_dns_section">DNS</string>
+    <string name="advanced_dns_primary">Основной DNS</string>
+    <string name="advanced_dns_secondary">Резервный DNS</string>
+    <string name="advanced_dns_hint">IP, домен или DoH-URL</string>
+    <string name="advanced_query_strategy">Стратегия запросов</string>
+    <string name="advanced_ports_section">Порты inbound (режим прокси)</string>
+    <string name="advanced_socks_port">SOCKS-порт</string>
+    <string name="advanced_http_port">HTTP-порт</string>
+    <string name="advanced_ports_equal">SOCKS и HTTP порты должны различаться</string>
+    <string name="advanced_tun_section">TUN</string>
+    <string name="advanced_tun_mtu">MTU туннеля</string>
+    <string name="advanced_mtu_hint">1280–9000, на мобильных сетях 1280</string>
+    <string name="advanced_mux_section">Mux</string>
+    <string name="advanced_mux_enabled">Включить Mux</string>
+    <string name="advanced_mux_concurrency">Одновременных соединений</string>
+    <string name="advanced_mux_xudp_concurrency">XUDP: соединений</string>
+    <string name="advanced_mux_behavior">XUDP UDP:443</string>
+    <string name="advanced_mux_note">Mux не применяется к VLESS + XTLS Vision — ядро не поддерживает их вместе.</string>
+    <string name="advanced_invalid_dns">Некорректный адрес DNS</string>
+    <string name="advanced_invalid_port">Порт должен быть числом 1–65535</string>
+    <string name="advanced_invalid_mtu">MTU должен быть числом 1280–9000</string>
+    <string name="advanced_invalid_mux">Значение Mux должно быть числом 0–1024</string>
+    <string name="advanced_save">Сохранить</string>
+    <string name="advanced_reset">Сбросить</string>
+    <string name="advanced_saved">Сохранено</string>
+    <string name="advanced_reset_done">Сброшено к значениям по умолчанию</string>
+    <string name="advanced_back">Назад</string>
 </resources>

@@ -2,6 +2,7 @@ package com.maestrovpn.client.core.subscription
 
 import android.content.Context
 import com.maestrovpn.client.core.engine.VpnEngine
+import com.maestrovpn.client.core.settings.AdvancedSettings
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
@@ -49,6 +50,8 @@ class ManualServerStore(
         }
         val (parsed, reason) = server.toParsedServer()
         if (parsed == null) return reason ?: "Сервер не удалось преобразовать в конфиг"
+        // Сохранение проверяет базовый конфиг; настройки применяются
+        // при подключении (buildConfigFor) и там же валидируются движком.
         val built = XrayConfigBuilder.build(listOf(parsed), parsed.tag)
         if (!engine.validateConfig(built.configJson)) {
             return "Собранный конфиг не прошёл проверку движка"
@@ -83,7 +86,11 @@ class ManualServerStore(
             val pair = server.toParsedServer()
             val parsed = pair.first
                 ?: throw IllegalStateException(pair.second ?: "Сервер не удалось преобразовать")
-            val built = XrayConfigBuilder.build(listOf(parsed), parsed.tag)
+            val built = XrayConfigBuilder.build(
+                servers = listOf(parsed),
+                selectedTag = parsed.tag,
+                advanced = AdvancedSettings.snapshot(),
+            )
             if (!engine.validateConfig(built.configJson)) {
                 throw IllegalStateException("Собранный конфиг не прошёл проверку движка")
             }

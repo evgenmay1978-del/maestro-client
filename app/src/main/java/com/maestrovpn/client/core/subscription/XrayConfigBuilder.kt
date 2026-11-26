@@ -1,13 +1,16 @@
 package com.maestrovpn.client.core.subscription
 
+import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.add
 import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.put
 import com.maestrovpn.client.core.routing.RoutingProfile
 import com.maestrovpn.client.core.routing.RoutingRulesBuilder
+import com.maestrovpn.client.core.settings.AdvancedConfig
 
 // Строитель полного Xray-конфига из распарсенных серверов (срез 7).
 // Чистый Kotlin, без Android API — проверяется на обычной JVM
@@ -30,12 +33,18 @@ object XrayConfigBuilder {
     )
 
     private const val TUN_ADDRESS = "172.19.0.1/30"
-    private const val TUN_MTU = 1280
     private const val API_PORT = 10085
-    private const val SOCKS_PORT = 10808
-    private const val HTTP_PORT = 10809
     private const val PROBE_URL = "https://www.gstatic.com/generate_204"
     private const val PROBE_INTERVAL = "3m"
+
+    // MTU tun-inbound, порты socks/http — из AdvancedConfig (issue #3);
+    // дефолты совпадают с прежними константами (1280 / 10808 / 10809).
+
+    /**
+     * Протоколы, у которых Xray поддерживает mux. Для остальных (wireguard,
+     * freedom и пр.) mux-блок — ошибка конфига, а не «лишнее поле».
+     */
+    private val MULTIPLEXABLE_PROTOCOLS = setOf("vless", "vmess", "trojan", "shadowsocks", "socks", "http")
 
     /** Приватные диапазоны — всегда напрямую, без прокси. */
     private val PRIVATE_CIDRS = listOf(
@@ -53,6 +62,7 @@ object XrayConfigBuilder {
         selectedTag: String?,
         vpnMode: Boolean = true,
         routingProfile: RoutingProfile? = null,
+        advanced: AdvancedConfig = AdvancedConfig.DEFAULT,
     ): BuiltConfig {
         require(servers.isNotEmpty()) { "нет серверов для конфига" }
         val tags = servers.map { it.tag }
@@ -65,12 +75,13 @@ object XrayConfigBuilder {
                 put("loglevel", "warning")
                 put("access", "none")
             })
+            // DNS профиля приоритетнее: он задаёт split-DNS для маршрутизации.
+            // Без профиля — адреса и стратегия из продвинутых настроек.
             put("dns", routingProfile?.let { RoutingRulesBuilder.dns(it) } ?: buildJsonObject {
                 put("servers", buildJsonArray {
-                    add("1.1.1.1")
-                    add("8.8.8.8")
+                    advanced.dnsServers().forEach { add(it) }
                 })
-                put("queryStrategy", "UseIPv4")
+                put("queryStrategy", advanced.queryStrategy)
             })
             put("stats", buildJsonObject {})
             put("policy", buildJsonObject {
@@ -114,7 +125,7 @@ object XrayConfigBuilder {
                         put("protocol", "tun")
                         put("settings", buildJsonObject {
                             put("address", TUN_ADDRESS)
-                            put("mtu", TUN_MTU)
+                            put("mtu", advanced.tunMtu)
                             put("strictRoute", true)
                         })
                         put("sniffing", buildJsonObject {
@@ -130,7 +141,7 @@ object XrayConfigBuilder {
                     add(buildJsonObject {
                         put("tag", "socks-in")
                         put("listen", "127.0.0.1")
-                        put("port", SOCKS_PORT)
+                        put("port", advanced.socksPort)
                         put("protocol", "socks")
                         put("settings", buildJsonObject {
                             put("auth", "noauth")
@@ -148,7 +159,7 @@ object XrayConfigBuilder {
                     add(buildJsonObject {
                         put("tag", "http-in")
                         put("listen", "127.0.0.1")
-                        put("port", HTTP_PORT)
+                        put("port", advanced.httpPort)
                         put("protocol", "http")
                         put("settings", buildJsonObject {
                             put("auth", "noauth")
@@ -167,7 +178,8 @@ object XrayConfigBuilder {
             put("outbounds", buildJsonArray {
                 for (server in servers) {
                     // Xray outbound как есть, tag — наш (уникальный в подписке).
-                    add(JsonObject(server.xrayOutbound + ("tag" to JsonPrimitive(server.tag))))
+                    val outbound = JsonObject(server.xrayOutbound + ("tag" to JsonPrimitive(server.tag)))
+                    add(withMux(outbound, advanced))
                 }
                 add(buildJsonObject {
                     put("tag", "direct")
@@ -229,5 +241,46 @@ object XrayConfigBuilder {
             }
         }
         return BuiltConfig(configJson = config.toString(), vpnMode = vpnMode)
+    }
+
+    /**
+     * Добавляет mux-блок к outbound, если он включён и протокол это умеет.
+     * VLESS + XTLS Vision с mux не работает (Xray отвергает такой конфиг),
+     * поэтому Vision-outbound'ы mux не получают — иначе включённый в настройках
+     * mux ломал бы всю подписку целиком.
+     */
+    private fun withMux(outbound: JsonObject, advanced: AdvancedConfig): JsonObject {
+        if (!advanced.muxEnabled) return outbound
+        val protocol = (outbound["protocol"] as? JsonPrimitive)?.contentOrNull?.lowercase()
+        if (protocol == null || protocol !in MULTIPLEXABLE_PROTOCOLS) return outbound
+        if (hasVisionFlow(outbound)) return outbound
+        return JsonObject(
+            outbound + (
+                "mux" to buildJsonObject {
+                    put("enabled", true)
+                    put("concurrency", advanced.muxConcurrency)
+                    put("xudpConcurrency", advanced.muxXudpConcurrency)
+                    put("xudpProxyUDP443", advanced.muxXudpBehavior)
+                }
+                ),
+        )
+    }
+
+    /**
+     * VLESS-настройка flow = xtls-rprx-vision: mux с ней несовместим.
+     * Реальная форма outbound у парсера — settings.vnext[].users[].flow
+     * (плоская settings.vless проверяется на случай ручного конфига).
+     */
+    private fun hasVisionFlow(outbound: JsonObject): Boolean {
+        val settings = outbound["settings"] as? JsonObject ?: return false
+        (settings["vnext"] as? JsonArray)?.forEach { endpoint ->
+            val users = (endpoint as? JsonObject)?.get("users") as? JsonArray ?: return@forEach
+            users.forEach { user ->
+                val flow = ((user as? JsonObject)?.get("flow") as? JsonPrimitive)?.contentOrNull
+                if (flow != null && flow.contains("vision", ignoreCase = true)) return true
+            }
+        }
+        val flat = (settings["vless"] as? JsonObject)?.get("flow") as? JsonPrimitive
+        return flat?.contentOrNull?.contains("vision", ignoreCase = true) == true
     }
 }
