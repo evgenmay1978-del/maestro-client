@@ -106,7 +106,10 @@ class XrayEngine : VpnEngine {
         return try {
             val tmp = File.createTempFile("xray-validate-", ".json", App.application.cacheDir)
             try {
-                tmp.writeText(configJson)
+                // На Android tun inbound не собирается в режиме -test (нужен
+                // настоящий fd из VpnService) — проверяем конфиг с подменой
+                // tun на socks, см. XrayValidationConfig.
+                tmp.writeText(XrayValidationConfig.forValidation(configJson))
                 val result = runBlocking(Dispatchers.IO) {
                     withTimeoutOrNull(VALIDATE_TIMEOUT_MS) {
                         runProcess(
