@@ -12,6 +12,8 @@ import com.maestrovpn.client.App
 import com.maestrovpn.client.constant.Alert
 import com.maestrovpn.client.constant.Status
 import com.maestrovpn.client.core.engine.VpnLog
+import com.maestrovpn.client.core.engine.TunFdContract
+import com.maestrovpn.client.core.engine.XrayDiagnostics
 import com.maestrovpn.client.core.engine.XrayEngine
 import com.maestrovpn.client.core.engine.XrayNative
 import com.maestrovpn.client.database.Settings
@@ -36,7 +38,9 @@ import kotlin.concurrent.thread
  *    запасные значения — константы ниже; MTU 1280: на мобильном пути 1500
  *    без MSS-clamping молча роняет трафик, измерено в Maestro 17.11.2026).
  * 2. Нативный спавнер (XrayNative) делает fork/exec и передаёт tun fd
- *    через XRAY_TUN_FD — ProcessBuilder так не умеет (закрывает fd >= 3).
+ *    переменной xray.tun.fd (TunFdContract) — ProcessBuilder так не умеет
+ *    (закрывает fd >= 3), а расхождение имени переменной стоит неработающего
+ *    старта: ядро тогда создаёт tun само и падает на netlink.
  * 3. Спавн вызывается из выделенного потока-монитора: он же блокируется
  *    в waitpid, а PR_SET_PDEATHSIG в спавнере убивает ядро, если процесс
  *    приложения умрёт раньше (иначе остался бы сирота с мёртвым tun).
@@ -161,7 +165,7 @@ class VPNService : VpnService() {
                     "VPN не разрешён или отозван (возможно, включён другой VPN-клиент)",
                 )
             rawFd = tunPfd.detachFd()
-            VpnLog.i("tun: established fd=$rawFd")
+            VpnLog.i("tun: established " + TunFdContract.describe(rawFd))
 
             val engine = XrayEngine()
             val binary = engine.binaryFile()
@@ -228,6 +232,7 @@ class VPNService : VpnService() {
      */
     private fun fail(message: String, error: Throwable? = null) {
         VpnLog.e("не удалось поднять туннель: $message", error)
+        writeFailureEvidence("старт туннеля", message)
         binder.broadcast { it.onServiceAlert(Alert.CreateService.ordinal, message) }
         stopTunnel()
     }
@@ -254,6 +259,7 @@ class VPNService : VpnService() {
         if (stopping.get()) return
         val engine = XrayEngine()
         val detail = readLogTail(engine.logFile())
+        writeFailureEvidence("ядро завершилось (код $exitCode)", detail)
         val message = "Ядро Xray неожиданно завершилось (код $exitCode)" +
             (detail.takeIf { it.isNotBlank() }?.let { ": $it" } ?: "")
         binder.broadcast { it.onServiceAlert(Alert.CreateService.ordinal, message) }
@@ -320,6 +326,22 @@ class VPNService : VpnService() {
             if (inbound.optString("protocol") == "tun") return inbound
         }
         return null
+    }
+
+    /**
+     * Полный разбор сбоя: files/xray-failure.log (полная ошибка + конфиг с
+     * замаскированными секретами + хвост журнала ядра) и logcat. Экран
+     * показывает одну строку, но причина сбоя не теряется.
+     */
+    private fun writeFailureEvidence(stage: String, message: String) {
+        val engine = XrayEngine()
+        val config = runCatching { engine.configFile().readText() }.getOrNull()
+        val tail = XrayDiagnostics.tail(engine.logFile())
+        val file = XrayDiagnostics.writeFailure(filesDir, stage, message, config, tail)
+        VpnLog.e("сбой (" + stage + ")" + (file?.let { ", отчёт: " + it.absolutePath } ?: ""))
+        // logcat режет строку на 4000 символов — отправляем частями.
+        message.chunked(3000).forEach { VpnLog.e("ошибка: " + it) }
+        if (tail.isNotBlank()) tail.chunked(3000).forEach { VpnLog.e("xray.log: " + it) }
     }
 
     private fun readLogTail(logFile: File): String {

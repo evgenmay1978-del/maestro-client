@@ -32,7 +32,8 @@ object XrayConfigBuilder {
         val vpnMode: Boolean,
     )
 
-    private const val TUN_ADDRESS = "172.19.0.1/30"
+    /** Имя tun для схемы ядра: исключает перечисление интерфейсов на Android. */
+    private const val TUN_NAME = "maestro0"
     private const val API_PORT = 10085
     private const val PROBE_URL = "https://www.gstatic.com/generate_204"
     private const val PROBE_INTERVAL = "3m"
@@ -123,10 +124,21 @@ object XrayConfigBuilder {
                     add(buildJsonObject {
                         put("tag", "tun-in")
                         put("protocol", "tun")
+                        // Поля — строго по схеме собранного бинаря
+                        // (Xray 26.11.9, infra/conf/tun.go: name, desc, mtu,
+                        // gateway, dns, userLevel, autoSystemRoutingTable, ...).
+                        // Без "name" ядро перечисляет системные интерфейсы
+                        // (GetAvailableTunName -> net.Interfaces) и на Android
+                        // падает: netlink приложению запрещён, отсюда
+                        // "fail to get system interface information".
+                        // Настоящее имя туннеля ядро узнаёт у fd через
+                        // TUNGETIFF, поэтому "name" здесь — только чтобы
+                        // обойти перечисление. Адрес и MTU туннеля ставит
+                        // VpnService.Builder; полю "address" ядро не знает
+                        // (игнорирует) — поэтому его тут нет.
                         put("settings", buildJsonObject {
-                            put("address", TUN_ADDRESS)
+                            put("name", TUN_NAME)
                             put("mtu", advanced.tunMtu)
-                            put("strictRoute", true)
                         })
                         put("sniffing", buildJsonObject {
                             put("enabled", true)
