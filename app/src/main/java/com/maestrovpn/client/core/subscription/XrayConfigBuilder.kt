@@ -34,6 +34,8 @@ object XrayConfigBuilder {
 
     /** Имя tun для схемы ядра: исключает перечисление интерфейсов на Android. */
     private const val TUN_NAME = "maestro0"
+    private const val TUN_INBOUND_TAG = "tun-in"
+    private const val DNS_OUTBOUND_TAG = "dns"
     private const val API_PORT = 10085
     private const val PROBE_URL = "https://www.gstatic.com/generate_204"
     private const val PROBE_INTERVAL = "3m"
@@ -46,6 +48,10 @@ object XrayConfigBuilder {
      * freedom и пр.) mux-блок — ошибка конфига, а не «лишнее поле».
      */
     private val MULTIPLEXABLE_PROTOCOLS = setOf("vless", "vmess", "trojan", "shadowsocks", "socks", "http")
+
+    private const val AUTO_BALANCER_TAG = "auto"
+    private const val FAKE_DNS_IP_POOL = "198.18.0.0/16"
+    private const val FAKE_DNS_POOL_SIZE = 65535
 
     /** Приватные диапазоны — всегда напрямую, без прокси. */
     private val PRIVATE_CIDRS = listOf(
@@ -69,7 +75,14 @@ object XrayConfigBuilder {
         val tags = servers.map { it.tag }
         val selected = selectedTag?.takeIf { it in tags }
         val auto = selected == null
-        val finalTag = selected ?: "auto"
+        // Куда идёт всё, что не попало в правила профиля. Без этого ядро
+        // кидало трафик в первый outbound, а поле routing.final, которое
+        // стояло тут раньше, ядро игнорирует (проверено на 26.11.9).
+        val catchAll = if (auto) {
+            RoutingRulesBuilder.CatchAll(balancerTag = AUTO_BALANCER_TAG)
+        } else {
+            RoutingRulesBuilder.CatchAll(outboundTag = selected)
+        }
 
         val config = buildJsonObject {
             put("log", buildJsonObject {
@@ -78,12 +91,24 @@ object XrayConfigBuilder {
             })
             // DNS профиля приоритетнее: он задаёт split-DNS для маршрутизации.
             // Без профиля — адреса и стратегия из продвинутых настроек.
-            put("dns", routingProfile?.let { RoutingRulesBuilder.dns(it) } ?: buildJsonObject {
-                put("servers", buildJsonArray {
-                    advanced.dnsServers().forEach { add(it) }
+            put("dns", routingProfile?.let { RoutingRulesBuilder.dns(it, advanced) }
+                ?: buildJsonObject {
+                    put("servers", buildJsonArray {
+                        advanced.dnsServers().forEach { add(it) }
+                    })
+                    put("queryStrategy", advanced.queryStrategy)
                 })
-                put("queryStrategy", advanced.queryStrategy)
-            })
+            // FakeDNS — ВЕРХНЕУРОВНЕВАЯ секция (в dns её ядро не читает:
+            // проверено на бинаре 26.11.9 — "dns":{...,"fakeDns":"..."}
+            // проходит -test как неизвестное поле). Без "fakedns" в
+            // dns.servers и в sniffing.destOverride ядро пишет
+            // Warning «Defined FakeDNS but haven't enabled FakeDNS destOverride».
+            if (fakeDnsEnabled(routingProfile)) {
+                put("fakeDns", buildJsonObject {
+                    put("ipPool", FAKE_DNS_IP_POOL)
+                    put("poolSize", FAKE_DNS_POOL_SIZE)
+                })
+            }
             put("stats", buildJsonObject {})
             put("policy", buildJsonObject {
                 put("levels", buildJsonObject {
@@ -140,14 +165,7 @@ object XrayConfigBuilder {
                             put("name", TUN_NAME)
                             put("mtu", advanced.tunMtu)
                         })
-                        put("sniffing", buildJsonObject {
-                            put("enabled", true)
-                            put("destOverride", buildJsonArray {
-                                add("http")
-                                add("tls")
-                                add("quic")
-                            })
-                        })
+                        put("sniffing", sniffing(fakeDnsEnabled(routingProfile)))
                     })
                 } else {
                     add(buildJsonObject {
@@ -159,14 +177,7 @@ object XrayConfigBuilder {
                             put("auth", "noauth")
                             put("udp", true)
                         })
-                        put("sniffing", buildJsonObject {
-                            put("enabled", true)
-                            put("destOverride", buildJsonArray {
-                                add("http")
-                                add("tls")
-                                add("quic")
-                            })
-                        })
+                        put("sniffing", sniffing(fakeDnsEnabled(routingProfile)))
                     })
                     add(buildJsonObject {
                         put("tag", "http-in")
@@ -176,14 +187,7 @@ object XrayConfigBuilder {
                         put("settings", buildJsonObject {
                             put("auth", "noauth")
                         })
-                        put("sniffing", buildJsonObject {
-                            put("enabled", true)
-                            put("destOverride", buildJsonArray {
-                                add("http")
-                                add("tls")
-                                add("quic")
-                            })
-                        })
+                        put("sniffing", sniffing(fakeDnsEnabled(routingProfile)))
                     })
                 }
             })
@@ -193,6 +197,18 @@ object XrayConfigBuilder {
                     val outbound = JsonObject(server.xrayOutbound + ("tag" to JsonPrimitive(server.tag)))
                     add(withMux(outbound, advanced))
                 }
+                // DNS-форвардер: сюда уходят запросы порта 53 из tun
+                // (правило dnsInterceptRule). Иначе они ехали как обычный
+                // UDP через прокси и не доходили — сайты не открывались.
+                add(buildJsonObject {
+                    put("tag", DNS_OUTBOUND_TAG)
+                    put("protocol", "dns")
+                    put("settings", buildJsonObject {
+                        put("network", "udp")
+                        put("address", dnsForwardAddress(routingProfile, advanced))
+                        put("port", 53)
+                    })
+                })
                 add(buildJsonObject {
                     put("tag", "direct")
                     put("protocol", "freedom")
@@ -205,6 +221,8 @@ object XrayConfigBuilder {
             put("routing", buildJsonObject {
                 put("domainStrategy", routingProfile?.domainStrategy ?: "IPIfNonMatch")
                 put("rules", buildJsonArray {
+                    // 0. DNS из туннеля — в DNS-форвардер, а не в прокси.
+                    if (vpnMode) add(RoutingRulesBuilder.dnsInterceptRule(TUN_INBOUND_TAG, DNS_OUTBOUND_TAG))
                     // API-запросы — в API-обработчик, а не в прокси.
                     add(buildJsonObject {
                         put("type", "field")
@@ -221,15 +239,18 @@ object XrayConfigBuilder {
                     })
                     // Правила профиля: block -> proxy -> direct.
                     routingProfile?.let { profile ->
-                        RoutingRulesBuilder.rules(profile).forEach { add(it) }
+                        RoutingRulesBuilder.rules(profile, catchAll).forEach { add(it) }
                     }
+                    // Замыкающее правило — строго последним: всё остальное
+                    // в выбранный сервер (или в балансировщик auto).
+                    add(RoutingRulesBuilder.catchAllRule(catchAll))
                 })
                 // Balancer — не outbound, а секция routing (документация Xray):
                 // только когда выбран "auto".
                 if (auto) {
                     put("balancers", buildJsonArray {
                         add(buildJsonObject {
-                            put("tag", "auto")
+                            put("tag", AUTO_BALANCER_TAG)
                             put("selector", buildJsonArray {
                                 tags.forEach { add(it) }
                             })
@@ -239,7 +260,6 @@ object XrayConfigBuilder {
                         })
                     })
                 }
-                put("final", finalTag)
             })
             // Observatory — пробы для leastPing, только в режиме auto.
             if (auto) {
@@ -253,6 +273,35 @@ object XrayConfigBuilder {
             }
         }
         return BuiltConfig(configJson = config.toString(), vpnMode = vpnMode)
+    }
+
+    /**
+     * sniffing с destOverride. При FakeDNS "fakedns" обязателен в
+     * destOverride: без него ядро не подставляет домен вместо
+     * синтетического адреса и маршрутизация по доменам ломается
+     * (ядро ругается Warning'ом, проверено на 26.11.9).
+     */
+    private fun sniffing(fakeDns: Boolean) = buildJsonObject {
+        put("enabled", true)
+        put("destOverride", buildJsonArray {
+            add("http")
+            add("tls")
+            add("quic")
+            if (fakeDns) add("fakedns")
+        })
+        // routeOnly намеренно не ставим: destOverride нужен и для выбора
+        // маршрута по домену (domainStrategy IPIfNonMatch), и для FakeDNS.
+    }
+
+    private fun fakeDnsEnabled(profile: RoutingProfile?): Boolean = profile?.fakeDns == true
+
+    /**
+     * Адрес, куда dns-форвардер отправляет запросы: IP из профиля, иначе
+     * первичный DNS из продвинутых настроек.
+     */
+    private fun dnsForwardAddress(profile: RoutingProfile?, advanced: AdvancedConfig): String {
+        val fromProfile = profile?.remoteDnsIp?.trim().orEmpty()
+        return if (fromProfile.isNotEmpty()) fromProfile else advanced.remoteDnsPrimary
     }
 
     /**
