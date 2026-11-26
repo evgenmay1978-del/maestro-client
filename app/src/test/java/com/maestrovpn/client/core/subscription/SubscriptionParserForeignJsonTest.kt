@@ -5,7 +5,7 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
- * Спецификация §7: формат sing-box (SING_BOX_CONFIG) не поддерживается.
+ * Specii 7: chuzhoy konfig JSON otvergayetsya s prichinoy, ne opredelyaetsya kak podderzhivaemyy.
  * JSON-объект без распознаваемых Xray outbounds — отказ с причиной (UNKNOWN),
  * а не определение чужого формата.
  */
