@@ -6,5 +6,5 @@ plugins {
     id("org.jetbrains.kotlin.plugin.compose") version "2.3.10" apply false
     id("org.jetbrains.kotlin.plugin.serialization") version "2.3.10" apply false
     id("org.jetbrains.kotlin.plugin.parcelize") version "2.3.10" apply false
-    id("com.google.devtools.ksp") version "2.3.5" apply false
+    id("com.google.devtools.ksp") version "2.3.14" apply false
 }
