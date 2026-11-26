@@ -56,6 +56,12 @@ android {
         aidl = true
     }
 
+    // Геоданные (§8): идут в assets как есть. noCompress — иначе aapt
+    // сожмёт .dat и Xray не откроет их как geosite.dat.
+    androidResources {
+        noCompress += "dat"
+    }
+
     testOptions {
         unitTests.isIncludeAndroidResources = true
     }

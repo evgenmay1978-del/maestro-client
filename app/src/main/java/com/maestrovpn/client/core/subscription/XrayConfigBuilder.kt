@@ -6,6 +6,8 @@ import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.add
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
+import com.maestrovpn.client.core.routing.RoutingProfile
+import com.maestrovpn.client.core.routing.RoutingRulesBuilder
 
 // Строитель полного Xray-конфига из распарсенных серверов (срез 7).
 // Чистый Kotlin, без Android API — проверяется на обычной JVM
@@ -50,6 +52,7 @@ object XrayConfigBuilder {
         servers: List<ParsedServer>,
         selectedTag: String?,
         vpnMode: Boolean = true,
+        routingProfile: RoutingProfile? = null,
     ): BuiltConfig {
         require(servers.isNotEmpty()) { "нет серверов для конфига" }
         val tags = servers.map { it.tag }
@@ -62,7 +65,7 @@ object XrayConfigBuilder {
                 put("loglevel", "warning")
                 put("access", "none")
             })
-            put("dns", buildJsonObject {
+            put("dns", routingProfile?.let { RoutingRulesBuilder.dns(it) } ?: buildJsonObject {
                 put("servers", buildJsonArray {
                     add("1.1.1.1")
                     add("8.8.8.8")
@@ -176,7 +179,7 @@ object XrayConfigBuilder {
                 })
             })
             put("routing", buildJsonObject {
-                put("domainStrategy", "IPIfNonMatch")
+                put("domainStrategy", routingProfile?.domainStrategy ?: "IPIfNonMatch")
                 put("rules", buildJsonArray {
                     // API-запросы — в API-обработчик, а не в прокси.
                     add(buildJsonObject {
@@ -184,6 +187,7 @@ object XrayConfigBuilder {
                         put("inboundTag", buildJsonArray { add("api") })
                         put("outboundTag", "api")
                     })
+                    // Приватные диапазоны — всегда напрямую (и без профиля).
                     add(buildJsonObject {
                         put("type", "field")
                         put("ip", buildJsonArray {
@@ -191,6 +195,10 @@ object XrayConfigBuilder {
                         })
                         put("outboundTag", "direct")
                     })
+                    // Правила профиля: block -> proxy -> direct.
+                    routingProfile?.let { profile ->
+                        RoutingRulesBuilder.rules(profile).forEach { add(it) }
+                    }
                 })
                 // Balancer — не outbound, а секция routing (документация Xray):
                 // только когда выбран "auto".

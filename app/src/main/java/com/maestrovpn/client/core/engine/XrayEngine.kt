@@ -6,6 +6,7 @@ import android.content.Intent
 import androidx.core.content.ContextCompat
 import com.maestrovpn.client.App
 import com.maestrovpn.client.bg.ProxyService
+import com.maestrovpn.client.core.routing.GeoDataFiles
 import com.maestrovpn.client.bg.VPNService
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.runBlocking
@@ -97,6 +98,8 @@ class XrayEngine : VpnEngine {
             lastError = "Xray binary not found"
             return false
         }
+        // Геоданные (§8): Xray ищет geoip.dat/geosite.dat рядом с бинарём ядра.
+        binary.parentFile?.let { GeoDataFiles.install(it) }
         return try {
             val tmp = File.createTempFile("xray-validate-", ".json", App.application.cacheDir)
             try {
