@@ -2,6 +2,8 @@ package com.maestrovpn.client.core.subscription
 
 import android.content.Context
 import com.maestrovpn.client.core.engine.VpnEngine
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
@@ -197,17 +199,17 @@ class SubscriptionManager(
      * конфиг → проверить движком → сохранить сырое тело.
      * Битая подписка живой конфиг не трогает (validate-before-save).
      */
-    fun importSubscription(name: String, url: String): ImportResult {
+    suspend fun importSubscription(name: String, url: String): ImportResult = withContext(Dispatchers.IO) {
         val trimmedUrl = url.trim()
         if (list().any { it.url.trim() == trimmedUrl }) {
-            return ImportResult.Failure("Такая подписка уже добавлена")
+            return@withContext ImportResult.Failure("Такая подписка уже добавлена")
         }
         val downloaded = downloadWithFallback(trimmedUrl)
         if (downloaded is DownloadResult.Failed) {
-            return ImportResult.Failure(downloaded.reason)
+            return@withContext ImportResult.Failure(downloaded.reason)
         }
         downloaded as DownloadResult.Ok
-        return saveParsed(
+        saveParsed(
             info = SubscriptionInfo(
                 id = java.util.UUID.randomUUID().toString(),
                 name = name.ifBlank { trimmedUrl },
@@ -221,13 +223,13 @@ class SubscriptionManager(
     }
 
     /** Обновить подписку: скачать заново и сохранить только если проверка прошла. */
-    fun refresh(info: SubscriptionInfo): ImportResult {
+    suspend fun refresh(info: SubscriptionInfo): ImportResult = withContext(Dispatchers.IO) {
         val downloaded = downloadWithFallback(info.url)
         if (downloaded is DownloadResult.Failed) {
-            return ImportResult.Failure(downloaded.reason)
+            return@withContext ImportResult.Failure(downloaded.reason)
         }
         downloaded as DownloadResult.Ok
-        return saveParsed(
+        saveParsed(
             info = info.copy(lastUpdatedMillis = System.currentTimeMillis()),
             content = downloaded.content,
             via = downloaded.via,

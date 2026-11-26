@@ -193,7 +193,7 @@ fun DashboardScreen(
     fun refreshSubscription(subId: String) {
         val sub = subscriptions.firstOrNull { it.id == subId } ?: return
         scope.launch {
-            val result = withContext(Dispatchers.IO) { manager.refresh(sub) }
+            val result = manager.refresh(sub)
             subscriptions = manager.list()
             snackbar.showSnackbar(
                 when (result) {
