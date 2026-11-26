@@ -1,7 +1,6 @@
 package com.maestrovpn.client.core.subscription
 
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -13,8 +12,11 @@ import org.junit.Test
 class SubscriptionParserSingboxRemovedTest {
 
     @Test
-    fun `json object without xray outbounds is unknown with reason`() {
-        val foreign = """{"type":"socks","tag":"proxy","server":"127.0.0.1","server_port":1080}"""
+    fun `json object with outbounds but not xray is unknown with reason`() {
+        // Объект с outbounds, у которых НЕТ protocol/streamSettings — чужой формат.
+        val foreign = """
+            {"outbounds":[{"type":"socks","tag":"proxy","server":"127.0.0.1","server_port":1080}]}
+        """.trimIndent()
         val parsed = SubscriptionParser.parse(foreign)
 
         assertEquals(SubscriptionFormat.UNKNOWN, parsed.format)
@@ -26,10 +28,16 @@ class SubscriptionParserSingboxRemovedTest {
     }
 
     @Test
-    fun `parsed subscription has no foreign config field`() {
-        val parsed = SubscriptionParser.parse("{\"outbounds\":[]}")
-        // Формат sing-box удалён из модели: поля singBoxConfig нет.
-        assertNull(parsed.singBoxConfig)
+    fun `json object without outbounds key is unknown with reason`() {
+        val foreign = """{"type":"socks","tag":"proxy","server":"127.0.0.1","server_port":1080}"""
+        val parsed = SubscriptionParser.parse(foreign)
+
+        assertEquals(SubscriptionFormat.UNKNOWN, parsed.format)
+        assertTrue(parsed.servers.isEmpty())
+        assertTrue(
+            "reason must be non-empty, got: ${parsed.issues}",
+            parsed.issues.all { it.reason.isNotBlank() },
+        )
     }
 
     @Test
