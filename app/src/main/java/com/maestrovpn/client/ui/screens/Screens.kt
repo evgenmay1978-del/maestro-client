@@ -165,12 +165,12 @@ fun SubscriptionsScreen(navController: NavController) {
 // Причина ошибки всегда показывается полностью; пустая причина
 // недопустима (дефект среза 2).
 @Composable
-fun SubscriptionAddScreen(navController: NavController) {
+fun SubscriptionAddScreen(navController: NavController, initialUrl: String = "") {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val manager = remember { SubscriptionManager(context, EngineManager.engine) }
     var name by remember { mutableStateOf("") }
-    var url by remember { mutableStateOf("") }
+    var url by remember { mutableStateOf(initialUrl) }
     var message by remember { mutableStateOf<String?>(null) }
     var saved by remember { mutableStateOf(false) }
     var busy by remember { mutableStateOf(false) }
