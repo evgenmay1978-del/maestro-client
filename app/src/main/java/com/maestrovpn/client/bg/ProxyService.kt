@@ -7,6 +7,8 @@ import android.os.PowerManager
 import androidx.lifecycle.MutableLiveData
 import com.maestrovpn.client.constant.Alert
 import com.maestrovpn.client.constant.Status
+import com.maestrovpn.client.core.engine.TunnelProcessRegistry
+import com.maestrovpn.client.core.engine.TunnelTeardown
 import com.maestrovpn.client.core.engine.VpnLog
 import com.maestrovpn.client.core.engine.XrayEngine
 import com.maestrovpn.client.core.engine.XrayNative
@@ -41,7 +43,8 @@ class ProxyService : Service() {
             private set
 
         private const val READY_TIMEOUT_MS = 5_000L
-        private const val STOP_GRACE_MS = 3_000L
+        private const val STOP_SETTLE_MS = 300L
+        private const val MONITOR_JOIN_MS = 700L
     }
 
     private val status = MutableLiveData(Status.Stopped)
@@ -55,6 +58,19 @@ class ProxyService : Service() {
     private var xrayPid: Long = -1
     private var monitorThread: Thread? = null
     private var wakeLock: PowerManager.WakeLock? = null
+
+    @Volatile
+    private var stopWorker: Thread? = null
+
+    /** Синхронная уборка ядра — тот же контракт, что у VPNService. */
+    private val teardown: TunnelTeardown by lazy {
+        TunnelTeardown(
+            signal = { pid, sig -> XrayNative.nativeSignal(pid, sig) },
+            isAlive = { pid -> XrayNative.nativeIsAlive(pid) },
+            releaseResources = { releaseWakeLock() },
+            log = { message -> VpnLog.i(message) },
+        )
+    }
 
     override fun onCreate() {
         super.onCreate()
@@ -113,6 +129,7 @@ class ProxyService : Service() {
                 )
             }
             xrayPid = spawnPid
+            TunnelProcessRegistry.register(spawnPid, "proxy")
 
             val deadline = System.currentTimeMillis() + READY_TIMEOUT_MS
             while (System.currentTimeMillis() < deadline) {
@@ -140,6 +157,8 @@ class ProxyService : Service() {
     }
 
     private fun onChildExit(exitCode: Int) {
+        TunnelProcessRegistry.clear(xrayPid)
+        releaseWakeLock()
         if (stopping.get()) return
         val engine = XrayEngine()
         val detail = readLogTail(engine.logFile())
@@ -150,32 +169,33 @@ class ProxyService : Service() {
         stopSelf()
     }
 
+    /**
+     * Идемпотентная остановка. Уборка — в собственном потоке: onDestroy()
+     * отменяет scope, и корутина уборки не успевала начаться (тот же дефект,
+     * что в VPNService, 26.11.2026).
+     */
     fun stopTunnel() {
         if (!stopping.compareAndSet(false, true)) return
         status.postValue(Status.Stopped)
         VpnLog.i("ProxyService stopTunnel")
-        scope.launch {
+        val worker = thread(name = "proxy-stop", isDaemon = true) {
             try {
-                val pid = xrayPid
-                if (pid > 0) {
-                    XrayNative.nativeSignal(pid, XrayNative.SIGTERM)
-                    val deadline = System.currentTimeMillis() + STOP_GRACE_MS
-                    while (System.currentTimeMillis() < deadline && XrayNative.nativeIsAlive(pid)) {
-                        delay(100)
-                    }
-                    if (XrayNative.nativeIsAlive(pid)) {
-                        XrayNative.nativeSignal(pid, XrayNative.SIGKILL)
-                    }
-                }
-                monitorThread?.join(1_000)
-                releaseWakeLock()
+                teardownBlocking()
+                monitorThread?.join(MONITOR_JOIN_MS)
             } finally {
-                stopForeground(STOP_FOREGROUND_REMOVE)
-                delay(300)
+                runCatching { stopForeground(STOP_FOREGROUND_REMOVE) }
+                runCatching { Thread.sleep(STOP_SETTLE_MS) }
                 VpnLog.i("ProxyService stopSelf")
                 stopSelf()
             }
         }
+        stopWorker = worker
+    }
+
+    private fun teardownBlocking() {
+        val pid = xrayPid
+        teardown.run(pid)
+        TunnelProcessRegistry.clear(pid)
     }
 
     private fun acquireWakeLock() {
@@ -209,7 +229,11 @@ class ProxyService : Service() {
     override fun onDestroy() {
         VpnLog.i("ProxyService onDestroy")
         if (current === this) current = null
-        stopTunnel()
+        stopping.set(true)
+        // Синхронно и до отмены scope — иначе ядро переживёт службу.
+        teardownBlocking()
+        runCatching { stopWorker?.join(MONITOR_JOIN_MS) }
+        runCatching { stopForeground(STOP_FOREGROUND_REMOVE) }
         scope.cancel()
         binder.close()
         super.onDestroy()
