@@ -62,6 +62,19 @@ android {
         noCompress += "dat"
     }
 
+    // Ядро Xray запускается дочерним процессом (fork/exec) прямо из
+    // nativeLibraryDir. При extractNativeLibs=false (умолчание AGP для
+    // minSdk >= 23) .so остаётся внутри APK, каталог nativeLibraryDir пуст,
+    // и на устройстве любая проверка конфига падала как «конфиг не прошёл
+    // проверку движка» (бинарь не найден) — дефект импорта подписки
+    // 26.11.2026. useLegacyPackaging = true заставляет установщик распаковать
+    // библиотеки файлами, как того ждёт код.
+    packaging {
+        jniLibs {
+            useLegacyPackaging = true
+        }
+    }
+
     testOptions {
         unitTests.isIncludeAndroidResources = true
     }
@@ -106,6 +119,14 @@ dependencies {
     implementation("androidx.room:room-runtime:2.8.4")
     implementation("androidx.room:room-ktx:2.8.4")
     implementation("androidx.preference:preference-ktx:1.2.1")
+    // QR-код: сканирование подписки телефоном и перенос на ТВ по локальной сети.
+    // zxing-core — чистый Java (без Google Play Services, работает и на ТВ-приставках
+    // без GMS); CameraX — превью и анализ кадров.
+    implementation("com.google.zxing:core:3.5.3")
+    implementation("androidx.camera:camera-core:1.4.2")
+    implementation("androidx.camera:camera-camera2:1.4.2")
+    implementation("androidx.camera:camera-lifecycle:1.4.2")
+    implementation("androidx.camera:camera-view:1.4.2")
     ksp("androidx.room:room-compiler:2.8.4")
     debugImplementation("androidx.compose.ui:ui-tooling")
     debugImplementation("androidx.compose.ui:ui-test-manifest")

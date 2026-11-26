@@ -7,9 +7,15 @@ import android.net.VpnService
 import com.maestrovpn.client.bg.ServiceConnection
 import com.maestrovpn.client.constant.Alert
 import com.maestrovpn.client.constant.Status
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.launch
 import java.io.File
 
 // Единая точка управления VPN (срез 2, переписана в срезе 7, issue #8).
@@ -39,6 +45,14 @@ object EngineManager {
 
     private lateinit var appContext: Context
     private var serviceConnection: ServiceConnection? = null
+
+    // Служба стартует асинхронно, а валидация конфига занимает секунды —
+    // и то и другое не должно идти в UI-потоке (раньше шло).
+    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    private var startWatchdog: Job? = null
+
+    /** Сколько ждём ответа службы, прежде чем признать старт неудачным. */
+    private const val START_TIMEOUT_MS = 25_000L
 
     fun init(app: Application) {
         appContext = app.applicationContext
@@ -74,23 +88,30 @@ object EngineManager {
             _statusMessage.value = "Сначала выберите сервер"
             return
         }
+        if (_status.value == EngineStatus.STARTING) return
         currentConfigJson = config
         _status.value = EngineStatus.STARTING
-        val ok = try {
-            engine.start(config)
-        } catch (e: Exception) {
-            _statusMessage.value = e.message
-            false
-        }
-        if (ok) {
-            connectService()
-        } else {
-            _status.value = EngineStatus.ERROR
-            _statusMessage.value = engine.lastError ?: "Не удалось запустить движок"
+        _statusMessage.value = null
+        armWatchdog()
+        scope.launch {
+            val ok = try {
+                engine.start(config)
+            } catch (e: Exception) {
+                _statusMessage.value = e.message
+                false
+            }
+            if (ok) {
+                connectService()
+            } else {
+                startWatchdog?.cancel()
+                _status.value = EngineStatus.ERROR
+                _statusMessage.value = engine.lastError ?: "Не удалось запустить движок"
+            }
         }
     }
 
     fun stopService() {
+        startWatchdog?.cancel()
         try {
             engine.stop()
         } catch (_: Exception) {
@@ -99,6 +120,27 @@ object EngineManager {
         startedAtMillis = null
         _status.value = EngineStatus.STOPPED
         _statusMessage.value = null
+    }
+
+    /**
+     * Страховка от «вечного Подключение…»: если за 25 секунд служба не
+     * отчиталась ни Started, ни ошибкой — показываем причину и гасим её.
+     * Без этого 26.11.2026 экран висел бесконечно и отключить было нечем.
+     */
+    private fun armWatchdog() {
+        startWatchdog?.cancel()
+        startWatchdog = scope.launch {
+            delay(START_TIMEOUT_MS)
+            if (_status.value != EngineStatus.STARTING) return@launch
+            _statusMessage.value =
+                "Служба VPN не ответила за ${START_TIMEOUT_MS / 1000} с — попробуйте ещё раз"
+            _status.value = EngineStatus.ERROR
+            try {
+                engine.stop()
+            } catch (_: Exception) {
+            }
+            disconnectService()
+        }
     }
 
     /** Конфиг из памяти или, если процесс перезапустился, из файла. */
@@ -114,16 +156,20 @@ object EngineManager {
             override fun onServiceStatusChanged(status: Status) {
                 when (status) {
                     Status.Stopped -> {
+                        startWatchdog?.cancel()
                         startedAtMillis = null
                         _status.value = EngineStatus.STOPPED
                     }
                     Status.Starting -> _status.value = EngineStatus.STARTING
                     Status.Started -> {
+                        startWatchdog?.cancel()
                         if (startedAtMillis == null) startedAtMillis = System.currentTimeMillis()
                         _status.value = EngineStatus.RUNNING
                         _statusMessage.value = null
                     }
-                    Status.Stopping -> _status.value = EngineStatus.STARTING
+                    // Stopping больше не показываем как «Подключение…»:
+                    // именно это превращало неудачный старт в вечный спиннер.
+                    Status.Stopping -> _status.value = EngineStatus.STOPPED
                 }
             }
 

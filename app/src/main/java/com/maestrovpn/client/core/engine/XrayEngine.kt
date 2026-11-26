@@ -95,7 +95,10 @@ class XrayEngine : VpnEngine {
     override fun validateConfig(configJson: String): Boolean {
         lastError = null
         val binary = binaryFile() ?: run {
-            lastError = "Xray binary not found"
+            // Точный путь в сообщении: без него не отличить пустой nativeLibraryDir
+            // (extractNativeLibs=false) от битого APK.
+            val dir = (app ?: App.application).applicationInfo.nativeLibraryDir
+            lastError = "бинарь ядра $BINARY_NAME не найден в $dir"
             return false
         }
         // Геоданные (§8): Xray ищет geoip.dat/geosite.dat рядом с бинарём ядра.
@@ -103,7 +106,10 @@ class XrayEngine : VpnEngine {
         return try {
             val tmp = File.createTempFile("xray-validate-", ".json", App.application.cacheDir)
             try {
-                tmp.writeText(configJson)
+                // На Android tun inbound не собирается в режиме -test (нужен
+                // настоящий fd из VpnService) — проверяем конфиг с подменой
+                // tun на socks, см. XrayValidationConfig.
+                tmp.writeText(XrayValidationConfig.forValidation(configJson))
                 val result = runBlocking(Dispatchers.IO) {
                     withTimeoutOrNull(VALIDATE_TIMEOUT_MS) {
                         runProcess(

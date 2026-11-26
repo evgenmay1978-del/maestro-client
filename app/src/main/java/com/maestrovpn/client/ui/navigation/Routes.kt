@@ -47,6 +47,9 @@ object Routes {
     const val APP_UPDATE = "app_update"
     const val IMPORT_CLIPBOARD = "import_clipboard"
     const val QR_SCAN = "qr_scan"
+    // Перенос подписки с телефона на ТВ (issue #6).
+    const val TRANSFER_RECEIVE = "transfer_receive"
+    const val TRANSFER_SEND = "transfer_send"
 
     // Редактор сервера — настоящий экран с аргументами (срез 5, issue #1).
     fun serverEditorRoute(id: String?, protocol: String?): String {
@@ -61,7 +64,6 @@ object Routes {
     val stubs: List<ScreenSpec> = listOf(
         ScreenSpec(SERVER_CUSTOM_CONFIG, "Произвольный конфиг", "карта §2.7", "полный Xray JSON, предупреждение о несохранённом"),
         ScreenSpec(SUBSCRIPTION_PROPERTIES, "Свойства подписки", "карта §3", "таймаут, User-Agent, автообновление, autoswitch"),
-        ScreenSpec(SETTINGS_ADVANCED, "Продвинутые настройки", "карта §4", "порты inbound, Local DNS, sniffing, mux, фрагментация, шумы"),
         ScreenSpec(SETTINGS_TUNNEL, "Настройки туннеля", "карта §4", "TUN MTU, IP-тип, Fake DNS, Xray TUN"),
         ScreenSpec(SETTINGS_UI, "Интерфейс", "карта §4", "размер шрифта, скорость в уведомлении, live-обновления"),
         ScreenSpec(SETTINGS_LANGUAGE, "Язык", "карта §4", "Auto / English / Русский / 中文 / فارسی"),
@@ -87,6 +89,5 @@ object Routes {
         ScreenSpec(RESET, "Сброс", "карта §8.8", "сброс настроек / полный сброс приложения"),
         ScreenSpec(APP_UPDATE, "Обновление приложения", "карта §8.9", "свой OTA (панель + зеркало), не GitHub/F-Droid"),
         ScreenSpec(IMPORT_CLIPBOARD, "Импорт из буфера", "карта §1.1", "вставка конфига/ссылки из буфера обмена"),
-        ScreenSpec(QR_SCAN, "Сканирование QR", "карта §8.1", "QR-сканер для импорта сервера/подписки"),
     )
 }

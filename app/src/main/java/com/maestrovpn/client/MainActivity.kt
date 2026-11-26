@@ -21,7 +21,11 @@ import com.maestrovpn.client.core.engine.EngineManager
 import com.maestrovpn.client.ui.deeplink.DeepLink
 import com.maestrovpn.client.ui.navigation.Routes
 import com.maestrovpn.client.ui.screens.AboutScreen
+import com.maestrovpn.client.ui.screens.AdvancedSettingsScreen
 import com.maestrovpn.client.ui.screens.DashboardScreen
+import com.maestrovpn.client.ui.screens.QrScannerScreen
+import com.maestrovpn.client.ui.screens.TransferReceiveScreen
+import com.maestrovpn.client.ui.screens.TransferSendScreen
 import com.maestrovpn.client.ui.screens.ServerEditorScreen
 import com.maestrovpn.client.ui.screens.ServersScreen
 import com.maestrovpn.client.ui.screens.RoutingProfileScreen
@@ -41,6 +45,7 @@ import com.maestrovpn.client.ui.theme.MaestroClientTheme
 private val ROUTING_ROUTES = setOf(
     "routing", "routing_edit", "routing_rules", "routing_profile",
     "sub_routing", "routing_settings_edit_search",
+    "qr_scan", "transfer_receive", "transfer_send",
 )
 
 class MainActivity : ComponentActivity() {
@@ -84,6 +89,7 @@ class MainActivity : ComponentActivity() {
                             )
                         }
                         composable(Routes.SETTINGS) { SettingsScreen(navController) }
+                        composable(Routes.SETTINGS_ADVANCED) { AdvancedSettingsScreen(navController) }
                         composable(Routes.ABOUT) { AboutScreen() }
                         composable(Routes.SUBSCRIPTIONS) { SubscriptionsScreen(navController) }
                         composable(
@@ -161,6 +167,33 @@ class MainActivity : ComponentActivity() {
                             RoutingProfileScreen(id)
                         }
                         composable(Routes.SUB_ROUTING) { SubRoutingScreen() }
+                        // QR-сканер и перенос подписки на ТВ (issue #6).
+                        composable(Routes.QR_SCAN) { QrScannerScreen(navController) }
+                        composable(Routes.TRANSFER_RECEIVE) { TransferReceiveScreen(navController) }
+                        composable(
+                            route = Routes.TRANSFER_SEND + "?host={host}&port={port}&token={token}",
+                            arguments = listOf(
+                                navArgument("host") {
+                                    type = NavType.StringType
+                                    defaultValue = ""
+                                },
+                                navArgument("port") {
+                                    type = NavType.IntType
+                                    defaultValue = 0
+                                },
+                                navArgument("token") {
+                                    type = NavType.StringType
+                                    defaultValue = ""
+                                },
+                            ),
+                        ) { backStackEntry ->
+                            TransferSendScreen(
+                                navController = navController,
+                                host = backStackEntry.arguments?.getString("host").orEmpty(),
+                                port = backStackEntry.arguments?.getInt("port") ?: 0,
+                                token = backStackEntry.arguments?.getString("token").orEmpty(),
+                            )
+                        }
                         composable(Routes.ROUTING_SETTINGS_EDIT_SEARCH) {
                             RoutingSettingsEditSearchScreen()
                         }

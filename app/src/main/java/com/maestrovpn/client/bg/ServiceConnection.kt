@@ -28,8 +28,9 @@ class ServiceConnection(private val context: Context, callback: Callback, privat
         // Служба определяется текущим конфигом (VPNService при tun inbound,
         // иначе ProxyService); при пустой памяти — по персистентному файлу.
         val intent = Intent(context, EngineManager.serviceClass()).setAction(Action.SERVICE)
-        context.bindService(intent, this, Context.BIND_AUTO_CREATE)
-        Log.d(TAG, "request connect")
+        val bound = context.bindService(intent, this, Context.BIND_AUTO_CREATE)
+        if (!bound) Log.e(TAG, "bindService вернул false: ${intent.component}")
+        Log.d(TAG, "request connect bound=$bound")
     }
 
     /**

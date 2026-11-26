@@ -117,4 +117,64 @@
     <string name="profile_type_remote">Удалённый</string>
 
     <string name="no_server_selected">Сначала выберите сервер</string>
+
+    <!-- Продвинутые настройки (issue #3) -->
+    <string name="advanced_title">Продвинутые настройки</string>
+    <string name="advanced_applies">Применяются при следующем подключении: сборка Xray-конфига читает эти значения.</string>
+    <string name="advanced_dns_section">DNS</string>
+    <string name="advanced_dns_primary">Основной DNS</string>
+    <string name="advanced_dns_secondary">Резервный DNS</string>
+    <string name="advanced_dns_hint">IP, домен или DoH-URL</string>
+    <string name="advanced_query_strategy">Стратегия запросов</string>
+    <string name="advanced_ports_section">Порты inbound (режим прокси)</string>
+    <string name="advanced_socks_port">SOCKS-порт</string>
+    <string name="advanced_http_port">HTTP-порт</string>
+    <string name="advanced_ports_equal">SOCKS и HTTP порты должны различаться</string>
+    <string name="advanced_tun_section">TUN</string>
+    <string name="advanced_tun_mtu">MTU туннеля</string>
+    <string name="advanced_mtu_hint">1280–9000, на мобильных сетях 1280</string>
+    <string name="advanced_mux_section">Mux</string>
+    <string name="advanced_mux_enabled">Включить Mux</string>
+    <string name="advanced_mux_concurrency">Одновременных соединений</string>
+    <string name="advanced_mux_xudp_concurrency">XUDP: соединений</string>
+    <string name="advanced_mux_behavior">XUDP UDP:443</string>
+    <string name="advanced_mux_note">Mux не применяется к VLESS + XTLS Vision — ядро не поддерживает их вместе.</string>
+    <string name="advanced_invalid_dns">Некорректный адрес DNS</string>
+    <string name="advanced_invalid_port">Порт должен быть числом 1–65535</string>
+    <string name="advanced_invalid_mtu">MTU должен быть числом 1280–9000</string>
+    <string name="advanced_invalid_mux">Значение Mux должно быть числом 0–1024</string>
+    <string name="advanced_save">Сохранить</string>
+    <string name="advanced_reset">Сбросить</string>
+    <string name="advanced_saved">Сохранено</string>
+    <string name="advanced_reset_done">Сброшено к значениям по умолчанию</string>
+    <string name="advanced_back">Назад</string>
+<!-- Перенос подписки: QR-сканер и приём на ТВ (issue #6) -->
+    <string name="scanner_title">Сканировать QR</string>
+    <string name="scanner_hint">Наведите камеру на QR-код: адрес приёма на ТВ или ссылка на подписку</string>
+    <string name="scanner_no_camera">На этом устройстве нет камеры — добавьте подписку вручную</string>
+    <string name="scanner_permission">Нужен доступ к камере, чтобы прочитать QR-код</string>
+    <string name="scanner_permission_button">Разрешить камеру</string>
+    <string name="scanner_unknown">Не распознано: %1$s</string>
+    <string name="scanner_rescan">Сканировать снова</string>
+    <string name="scanner_server_link">Ссылка на сервер скопирована — вставьте её в редакторе сервера</string>
+    <string name="receive_action">Принять с телефона</string>
+    <string name="receive_title">Принять подписку с телефона</string>
+    <string name="receive_hint">Откройте Maestro Client на телефоне → «QR-код» → наведите камеру на код ниже. Телефон и это устройство должны быть в одной сети Wi-Fi.</string>
+    <string name="receive_address">Адрес приёма: %1$s</string>
+    <string name="receive_waiting">Ждём подписку…</string>
+    <string name="receive_received">Подписка «%1$s» получена: серверов %2$d</string>
+    <string name="receive_received_unnamed">Подписка получена: серверов %1$d</string>
+    <string name="receive_failed">Не принято: %1$s</string>
+    <string name="receive_no_network">Не видно адреса локальной сети — проверьте Wi-Fi</string>
+    <string name="receive_port_failed">Не удалось открыть порт приёма: %1$s</string>
+    <string name="send_title">Отправить подписку на ТВ</string>
+    <string name="send_address">Приёмник: %1$s</string>
+    <string name="send_choose">Выберите подписку</string>
+    <string name="send_empty">Подписок пока нет — сначала добавьте её на телефоне</string>
+    <string name="send_button">Отправить</string>
+    <string name="send_ok">Отправлено: серверов %1$d</string>
+    <string name="send_ok_unknown">Отправлено</string>
+    <string name="send_refused">Приёмник отказал: %1$s</string>
+    <string name="send_failed">Не отправлено: %1$s</string>
+    <string name="send_sending">Отправляем…</string>
 </resources>

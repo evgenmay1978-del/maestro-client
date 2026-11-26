@@ -7,6 +7,7 @@ import android.os.PowerManager
 import androidx.lifecycle.MutableLiveData
 import com.maestrovpn.client.constant.Alert
 import com.maestrovpn.client.constant.Status
+import com.maestrovpn.client.core.engine.VpnLog
 import com.maestrovpn.client.core.engine.XrayEngine
 import com.maestrovpn.client.core.engine.XrayNative
 import com.maestrovpn.client.database.Settings
@@ -68,10 +69,17 @@ class ProxyService : Service() {
         if (starting.get() || status.value == Status.Started) return START_STICKY
         val configPath = intent?.getStringExtra(EXTRA_CONFIG_PATH)
             ?: File(filesDir, XrayEngine.CONFIG_FILE_NAME).absolutePath
-        startForeground(
-            XrayNotification.NOTIFICATION_ID,
-            XrayNotification.starting(this, ProxyService::class.java),
-        )
+        VpnLog.i("ProxyService onStartCommand startId=$startId config=$configPath")
+        try {
+            startForeground(
+                XrayNotification.NOTIFICATION_ID,
+                XrayNotification.starting(this, ProxyService::class.java),
+            )
+        } catch (e: Exception) {
+            VpnLog.e("ProxyService startForeground failed", e)
+            fail("Не удалось вывести службу на передний план: ${e.message}")
+            return START_NOT_STICKY
+        }
         status.postValue(Status.Starting)
         scope.launch { startProxy(configPath) }
         return START_STICKY
@@ -117,13 +125,18 @@ class ProxyService : Service() {
             acquireWakeLock()
             Settings.startedByUser = true
             status.postValue(Status.Started)
+            VpnLog.i("прокси-ядро поднято pid=$spawnPid")
         } catch (e: Exception) {
-            val message = e.message ?: e.javaClass.simpleName
-            binder.broadcast { it.onServiceAlert(Alert.CreateService.ordinal, message) }
-            stopTunnel()
+            fail(e.message ?: e.javaClass.simpleName, e)
         } finally {
             starting.set(false)
         }
+    }
+
+    private fun fail(message: String, error: Throwable? = null) {
+        VpnLog.e("не удалось поднять прокси-ядро: $message", error)
+        binder.broadcast { it.onServiceAlert(Alert.CreateService.ordinal, message) }
+        stopTunnel()
     }
 
     private fun onChildExit(exitCode: Int) {
@@ -139,25 +152,29 @@ class ProxyService : Service() {
 
     fun stopTunnel() {
         if (!stopping.compareAndSet(false, true)) return
-        status.postValue(Status.Stopping)
+        status.postValue(Status.Stopped)
+        VpnLog.i("ProxyService stopTunnel")
         scope.launch {
-            val pid = xrayPid
-            if (pid > 0) {
-                XrayNative.nativeSignal(pid, XrayNative.SIGTERM)
-                val deadline = System.currentTimeMillis() + STOP_GRACE_MS
-                while (System.currentTimeMillis() < deadline && XrayNative.nativeIsAlive(pid)) {
-                    delay(100)
+            try {
+                val pid = xrayPid
+                if (pid > 0) {
+                    XrayNative.nativeSignal(pid, XrayNative.SIGTERM)
+                    val deadline = System.currentTimeMillis() + STOP_GRACE_MS
+                    while (System.currentTimeMillis() < deadline && XrayNative.nativeIsAlive(pid)) {
+                        delay(100)
+                    }
+                    if (XrayNative.nativeIsAlive(pid)) {
+                        XrayNative.nativeSignal(pid, XrayNative.SIGKILL)
+                    }
                 }
-                if (XrayNative.nativeIsAlive(pid)) {
-                    XrayNative.nativeSignal(pid, XrayNative.SIGKILL)
-                }
+                monitorThread?.join(1_000)
+                releaseWakeLock()
+            } finally {
+                stopForeground(STOP_FOREGROUND_REMOVE)
+                delay(300)
+                VpnLog.i("ProxyService stopSelf")
+                stopSelf()
             }
-            monitorThread?.join(1_000)
-            releaseWakeLock()
-            status.postValue(Status.Stopped)
-            stopForeground(STOP_FOREGROUND_REMOVE)
-            stopSelf()
-            scope.cancel()
         }
     }
 
@@ -190,8 +207,10 @@ class ProxyService : Service() {
     }
 
     override fun onDestroy() {
+        VpnLog.i("ProxyService onDestroy")
         if (current === this) current = null
         stopTunnel()
+        scope.cancel()
         binder.close()
         super.onDestroy()
     }

@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Leanback banner 320x180 (Android TV launcher). Тёмный фон + золото Maestro. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="320dp"
+    android:height="180dp"
+    android:viewportWidth="320"
+    android:viewportHeight="180">
+    <path
+        android:fillColor="@color/maestro_background"
+        android:pathData="M0,0h320v180h-320z"/>
+    <path
+        android:fillColor="@color/maestro_gold_primary"
+        android:pathData="M40,40h240v100h-240z"/>
+    <path
+        android:fillColor="@color/maestro_gold_on_primary"
+        android:pathData="M80,70h160v40h-160z"/>
+</vector>
