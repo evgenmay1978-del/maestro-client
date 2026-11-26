@@ -9,7 +9,7 @@ import org.junit.Test
  * JSON-объект без распознаваемых Xray outbounds — отказ с причиной (UNKNOWN),
  * а не определение чужого формата.
  */
-class SubscriptionParserSingboxRemovedTest {
+class SubscriptionParserForeignJsonTest {
 
     @Test
     fun `json object with outbounds but not xray is unknown with reason`() {
