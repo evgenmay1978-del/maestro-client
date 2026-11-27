@@ -242,13 +242,15 @@ fun DashboardScreen(
                 Coin(
                     size = metrics.coinSize,
                     connected = connected,
-                    connecting = status == EngineStatus.STARTING,
+                    connecting = status == EngineStatus.STARTING || status == EngineStatus.STOPPING,
                     onClick = {
                         when {
                             // Пока идёт подключение кнопка обязана отключать:
                             // иначе «вечное Подключение…» нечем прервать.
                             connected -> EngineManager.stopService()
                             status == EngineStatus.STARTING -> EngineManager.stopService()
+                            // Остановка уже идёт — повторный запрос ничего не даёт.
+                            status == EngineStatus.STOPPING -> Unit
                             EngineManager.currentConfigJson.isNullOrBlank() -> {
                                 scope.launch {
                                     snackbar.showSnackbar(context.getString(R.string.no_server_selected))
@@ -263,6 +265,7 @@ fun DashboardScreen(
                     when (status) {
                         EngineStatus.RUNNING -> stringResource(R.string.status_connected)
                         EngineStatus.STARTING -> stringResource(R.string.status_connecting)
+                        EngineStatus.STOPPING -> stringResource(R.string.status_stopping)
                         EngineStatus.ERROR -> stringResource(R.string.status_error)
                         EngineStatus.STOPPED -> stringResource(R.string.status_disconnected)
                     },
