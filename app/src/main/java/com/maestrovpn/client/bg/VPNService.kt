@@ -13,6 +13,8 @@ import com.maestrovpn.client.constant.Alert
 import com.maestrovpn.client.constant.Status
 import com.maestrovpn.client.core.engine.VpnLog
 import com.maestrovpn.client.core.engine.TunFdContract
+import com.maestrovpn.client.core.engine.TunnelProcessRegistry
+import com.maestrovpn.client.core.engine.TunnelTeardown
 import com.maestrovpn.client.core.engine.XrayDiagnostics
 import com.maestrovpn.client.core.engine.XrayEngine
 import com.maestrovpn.client.core.engine.XrayNative
@@ -65,10 +67,18 @@ class VPNService : VpnService() {
         const val TUN_PREFIX = 30
         const val TUN_MTU = 1280
         val DNS_SERVERS = listOf("1.1.1.1", "8.8.8.8")
+        // IPv6 адрес туннеля ( fd00::1/120 — ULA, не конфликтует с локальными)
+        const val TUN_ADDRESS_V6 = "fd00::1"
+        const val TUN_PREFIX_V6 = 120
 
         private const val READY_TIMEOUT_MS = 5_000L
-        private const val STOP_GRACE_MS = 3_000L
         private const val STATS_INTERVAL_MS = 5_000L
+
+        /** Пауза после уборки: broadcast статуса должен успеть дойти до UI. */
+        private const val STOP_SETTLE_MS = 300L
+
+        /** Сколько ждём поток-монитор (waitpid) после сигналов уборки. */
+        private const val MONITOR_JOIN_MS = 700L
     }
 
     private val status = MutableLiveData(Status.Stopped)
@@ -82,6 +92,23 @@ class VPNService : VpnService() {
     private var xrayPid: Long = -1
     private var monitorThread: Thread? = null
     private var wakeLock: PowerManager.WakeLock? = null
+
+    @Volatile
+    private var stopWorker: Thread? = null
+
+    /**
+     * Синхронная уборка ядра: сигналы -> живость -> wake lock.
+     * Лямбды — чтобы [TunnelTeardown] оставался чистым Kotlin и проверялся
+     * JVM-тестом без нативного кода.
+     */
+    private val teardown: TunnelTeardown by lazy {
+        TunnelTeardown(
+            signal = { pid, sig -> XrayNative.nativeSignal(pid, sig) },
+            isAlive = { pid -> XrayNative.nativeIsAlive(pid) },
+            releaseResources = { releaseWakeLock() },
+            log = { message -> VpnLog.i(message) },
+        )
+    }
 
     override fun onCreate() {
         super.onCreate()
@@ -133,12 +160,18 @@ class VPNService : VpnService() {
             val builder = Builder()
                 .setSession("Maestro Client")
                 .setMtu(mtu)
-            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.Q) {
-                builder.setMetered(false)
-            }
+            // setMetered(false) на всех API: без этого cellular-интерфейс может
+            // считаться metered и система ограничит трафик внутри VPN (Android
+            // применяет политику metered к VpnService.Builder даже на API < Q).
+            builder.setMetered(false)
             if (Settings.allowBypass) builder.allowBypass()
             builder.addAddress(host, prefix)
             builder.addRoute("0.0.0.0", 0)
+            // IPv6: адрес и маршрут — иначе AAAA-запросы и IPv6-трафик уходят мимо VPN
+            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
+                builder.addAddress(TUN_ADDRESS_V6, TUN_PREFIX_V6)
+                builder.addRoute("::", 0)
+            }
             DNS_SERVERS.forEach { builder.addDnsServer(it) }
             val policy = PackagePolicy.decide(
                 packageName,
@@ -201,6 +234,7 @@ class VPNService : VpnService() {
                 )
             }
             xrayPid = spawnPid
+            TunnelProcessRegistry.register(spawnPid, "vpn")
             VpnLog.i("ядро запущено pid=$spawnPid")
 
             // Готовность: процесс должен прожить первые секунды. Если конфиг
@@ -256,6 +290,10 @@ class VPNService : VpnService() {
     }
 
     private fun onChildExit(exitCode: Int) {
+        // Процесс уже мёртв: снимаем запись и отпускаем wake lock сразу,
+        // не полагаясь на onDestroy (он может не успеть).
+        TunnelProcessRegistry.clear(xrayPid)
+        releaseWakeLock()
         if (stopping.get()) return
         val engine = XrayEngine()
         val detail = readLogTail(engine.logFile())
@@ -267,39 +305,43 @@ class VPNService : VpnService() {
         stopSelf()
     }
 
-    /** Идемпотентная остановка: SIGTERM, пауза, SIGKILL, снятие foreground. */
+    /**
+     * Идемпотентная остановка. Уборка идёт в собственном потоке, а не в
+     * scope: onDestroy() отменяет scope, и корутина уборки не успевала даже
+     * начаться — ядро переживало службу с tun fd (26.11.2026).
+     */
     fun stopTunnel() {
         if (!stopping.compareAndSet(false, true)) return
         // Stopped выставляем ДО уборки и синхронно: если служба умрёт раньше,
-        // чем колбэк дойдёт до приложения, экран останется в «Подключение…»
-        // (ровно это и случилось 26.11.2026). Status.Stopping в UI не шлём —
-        // он отображается как «Подключение…» и путает.
+        // чем колбэк дойдёт до приложения, экран останется в «Подключение…».
+        // Действительно ли уборка удалась, проверяет EngineManager по
+        // реестру процессов — ложное «Отключено» больше не проходит.
         status.postValue(Status.Stopped)
         VpnLog.i("VPNService stopTunnel")
-        scope.launch {
+        val worker = thread(name = "vpn-stop", isDaemon = true) {
             try {
-                val pid = xrayPid
-                if (pid > 0) {
-                    XrayNative.nativeSignal(pid, XrayNative.SIGTERM)
-                    val deadline = System.currentTimeMillis() + STOP_GRACE_MS
-                    while (System.currentTimeMillis() < deadline && XrayNative.nativeIsAlive(pid)) {
-                        delay(100)
-                    }
-                    if (XrayNative.nativeIsAlive(pid)) {
-                        XrayNative.nativeSignal(pid, XrayNative.SIGKILL)
-                    }
-                }
-                monitorThread?.join(1_000)
-                releaseWakeLock()
+                teardownBlocking()
+                monitorThread?.join(MONITOR_JOIN_MS)
             } finally {
-                stopForeground(STOP_FOREGROUND_REMOVE)
+                runCatching { stopForeground(STOP_FOREGROUND_REMOVE) }
                 // Пауза перед stopSelf: broadcast статуса идёт на Main и не
                 // успевает уйти, если служба исчезнет сразу.
-                delay(300)
+                runCatching { Thread.sleep(STOP_SETTLE_MS) }
                 VpnLog.i("VPNService stopSelf")
                 stopSelf()
             }
         }
+        stopWorker = worker
+    }
+
+    /**
+     * Синхронная уборка: сигналы -> проверка живости -> wake lock.
+     * Не зависит ни от корутин, ни от того, жива ли ещё служба.
+     */
+    private fun teardownBlocking() {
+        val pid = xrayPid
+        teardown.run(pid)
+        TunnelProcessRegistry.clear(pid)
     }
 
     private fun acquireWakeLock() {
@@ -362,7 +404,12 @@ class VPNService : VpnService() {
     override fun onDestroy() {
         VpnLog.i("VPNService onDestroy")
         if (current === this) current = null
-        stopTunnel()
+        stopping.set(true)
+        // Синхронная уборка ДО отмены scope: уборка внутри корутины не
+        // стартовала после cancel, и ядро оставалось жить (26.11.2026).
+        teardownBlocking()
+        runCatching { stopWorker?.join(MONITOR_JOIN_MS) }
+        runCatching { stopForeground(STOP_FOREGROUND_REMOVE) }
         // Scope гасим только при реальном уничтожении службы. Раньше он
         // отменялся в stopTunnel(), а служба оставалась живой из-за
         // bindService(BIND_AUTO_CREATE) — и следующая попытка включить VPN
