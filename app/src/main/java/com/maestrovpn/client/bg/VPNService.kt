@@ -67,6 +67,9 @@ class VPNService : VpnService() {
         const val TUN_PREFIX = 30
         const val TUN_MTU = 1280
         val DNS_SERVERS = listOf("1.1.1.1", "8.8.8.8")
+        // IPv6 адрес туннеля ( fd00::1/120 — ULA, не конфликтует с локальными)
+        const val TUN_ADDRESS_V6 = "fd00::1"
+        const val TUN_PREFIX_V6 = 120
 
         private const val READY_TIMEOUT_MS = 5_000L
         private const val STATS_INTERVAL_MS = 5_000L
@@ -157,12 +160,18 @@ class VPNService : VpnService() {
             val builder = Builder()
                 .setSession("Maestro Client")
                 .setMtu(mtu)
-            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.Q) {
-                builder.setMetered(false)
-            }
+            // setMetered(false) на всех API: без этого cellular-интерфейс может
+            // считаться metered и система ограничит трафик внутри VPN (Android
+            // применяет политику metered к VpnService.Builder даже на API < Q).
+            builder.setMetered(false)
             if (Settings.allowBypass) builder.allowBypass()
             builder.addAddress(host, prefix)
             builder.addRoute("0.0.0.0", 0)
+            // IPv6: адрес и маршрут — иначе AAAA-запросы и IPv6-трафик уходят мимо VPN
+            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
+                builder.addAddress(TUN_ADDRESS_V6, TUN_PREFIX_V6)
+                builder.addRoute("::", 0)
+            }
             DNS_SERVERS.forEach { builder.addDnsServer(it) }
             val policy = PackagePolicy.decide(
                 packageName,

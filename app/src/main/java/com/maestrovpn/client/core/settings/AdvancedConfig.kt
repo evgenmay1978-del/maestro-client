@@ -10,14 +10,31 @@ package com.maestrovpn.client.core.settings
 data class AdvancedConfig(
     val remoteDnsPrimary: String = DEFAULT_DNS_PRIMARY,
     val remoteDnsSecondary: String = DEFAULT_DNS_SECONDARY,
+    val domesticDnsPrimary: String = DEFAULT_DOMESTIC_DNS_PRIMARY,
+    val domesticDnsSecondary: String = DEFAULT_DOMESTIC_DNS_SECONDARY,
     val queryStrategy: String = QUERY_USE_IPV4,
     val tunMtu: Int = DEFAULT_TUN_MTU,
     val socksPort: Int = DEFAULT_SOCKS_PORT,
     val httpPort: Int = DEFAULT_HTTP_PORT,
+    val localDnsPort: Int = DEFAULT_LOCAL_DNS_PORT,
     val muxEnabled: Boolean = false,
     val muxConcurrency: Int = DEFAULT_MUX_CONCURRENCY,
     val muxXudpConcurrency: Int = DEFAULT_MUX_XUDP_CONCURRENCY,
     val muxXudpBehavior: String = MUX_REJECT,
+    val fragmentEnabled: Boolean = false,
+    val fragmentLengthMin: Int = DEFAULT_FRAGMENT_LENGTH_MIN,
+    val fragmentLengthMax: Int = DEFAULT_FRAGMENT_LENGTH_MAX,
+    val fragmentIntervalMin: Int = DEFAULT_FRAGMENT_INTERVAL_MIN,
+    val fragmentIntervalMax: Int = DEFAULT_FRAGMENT_INTERVAL_MAX,
+    val fragmentMaxSplit: Int = DEFAULT_FRAGMENT_MAX_SPLIT,
+    val noisesEnabled: Boolean = false,
+    val noisesPacket: Boolean = false,
+    val noisesDelayMin: Int = DEFAULT_NOISES_DELAY_MIN,
+    val noisesDelayMax: Int = DEFAULT_NOISES_DELAY_MAX,
+    val noisesRand: Boolean = false,
+    val noisesRange: Int = DEFAULT_NOISES_RANGE,
+    val noisesType: String = DEFAULT_NOISES_TYPE,
+    val sniffingEnabled: Boolean = true,
 ) {
     /** DNS-серверы как их ждёт Xray: пустые строки отброшены. */
     fun dnsServers(): List<String> = listOf(remoteDnsPrimary, remoteDnsSecondary)
@@ -28,9 +45,12 @@ data class AdvancedConfig(
     companion object {
         const val DEFAULT_DNS_PRIMARY = "1.1.1.1"
         const val DEFAULT_DNS_SECONDARY = "8.8.8.8"
+        const val DEFAULT_DOMESTIC_DNS_PRIMARY = "8.8.8.8"
+        const val DEFAULT_DOMESTIC_DNS_SECONDARY = "1.1.1.1"
         const val DEFAULT_TUN_MTU = 1280
         const val DEFAULT_SOCKS_PORT = 10808
         const val DEFAULT_HTTP_PORT = 10809
+        const val DEFAULT_LOCAL_DNS_PORT = 10853
         const val DEFAULT_MUX_CONCURRENCY = 8
         const val DEFAULT_MUX_XUDP_CONCURRENCY = 8
 
@@ -45,7 +65,6 @@ data class AdvancedConfig(
         const val QUERY_USE_IP = "UseIP"
         const val QUERY_USE_IPV6 = "UseIPv6"
 
-        /** Порядок — как в выпадающем списке UI. */
         val QUERY_STRATEGIES = listOf(QUERY_USE_IPV4, QUERY_USE_IP, QUERY_USE_IPV6)
 
         const val MUX_REJECT = "reject"
@@ -53,6 +72,19 @@ data class AdvancedConfig(
         const val MUX_SKIP = "skip"
 
         val MUX_BEHAVIORS = listOf(MUX_REJECT, MUX_ALLOW, MUX_SKIP)
+
+        // Fragmentation defaults (Happ: length 50-100, interval 10-20, max split 100-200)
+        const val DEFAULT_FRAGMENT_LENGTH_MIN = 50
+        const val DEFAULT_FRAGMENT_LENGTH_MAX = 100
+        const val DEFAULT_FRAGMENT_INTERVAL_MIN = 10
+        const val DEFAULT_FRAGMENT_INTERVAL_MAX = 20
+        const val DEFAULT_FRAGMENT_MAX_SPLIT = 200
+
+        // Noises defaults (Happ: delay 10-16, packet, rand, range, type)
+        const val DEFAULT_NOISES_DELAY_MIN = 10
+        const val DEFAULT_NOISES_DELAY_MAX = 16
+        const val DEFAULT_NOISES_RANGE = 100
+        const val DEFAULT_NOISES_TYPE = "xudp"
 
         val DEFAULT = AdvancedConfig()
 
