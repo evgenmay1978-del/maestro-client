@@ -57,9 +57,11 @@ class RoutingConfigXrayTest {
         val bin = binary ?: assumeTrue("xray binary missing", false).let { null }
             ?: return
         prepareGeoData(bin)
-        // geoip-правила работают с bundled geoip.dat (проверено xray run -test);
-        // geosite.dat из Loyalsoldier — protobuf-формат, Xray его не читает,
-        // поэтому geosite: тестом не покрываем.
+        // geoip-правила работают с bundled geoip.dat (проверено xray run -test).
+        // geosite: тестом не покрыт потому, что prepareGeoData кладёт рядом с
+        // бинарём только geoip.dat. Сам geosite.dat — стандартный protobuf,
+        // ядро его читает (проверено вручную на 26.11.9: geosite:category-ru
+        // проходит run -test, geosite:ru отклоняется — кода RU в базе нет).
         val profile = RoutingProfile(
             id = "p", name = "P",
             directSites = listOf("domain:example.com"),

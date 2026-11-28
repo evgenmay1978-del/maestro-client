@@ -145,7 +145,7 @@ fun RoutingSettingsEditScreen(navController: NavController, profileId: String?) 
             onValueChange = {
                 profile = profile.copy(directSites = it.lines().map { l -> l.trim() }.filter { l -> l.isNotEmpty() })
             },
-            label = { Text("Прямые сайты (domain:example.com, geosite:ru)") },
+            label = { Text("Прямые сайты (domain:example.com, geosite:category-ru)") },
             modifier = Modifier.fillMaxWidth().height(120.dp),
         )
         Spacer(Modifier.height(8.dp))
