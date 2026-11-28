@@ -69,7 +69,20 @@ class XrayEngine : VpnEngine {
 
     fun configFile(): File = File(App.application.filesDir, CONFIG_FILE_NAME)
 
-    fun logFile(): File = File(App.application.filesDir, LOG_FILE_NAME)
+    /**
+     * Каталог журналов. Внешний files dir (Android/data/<pkg>/files) читается
+     * с устройства через adb shell, приватный filesDir — нет: на release-сборке
+     * run-as запрещён, и журнал ядра после обрыва прочитать нечем (так и вышло
+     * 28.11.2026 — сеть падала, логов нет). Внешний каталог доступен без
+     * разрешений и без root, поэтому журнал живёт там; при отсутствии
+     * внешнего хранилища — прежний приватный путь.
+     */
+    fun logDir(): File {
+        val app = this.app ?: App.application
+        return app.getExternalFilesDir(null) ?: app.filesDir
+    }
+
+    fun logFile(): File = File(logDir(), LOG_FILE_NAME)
 
     /** Есть ли в конфиге tun inbound — решает, VPN это или «только прокси». */
     fun isVpnMode(configJson: String): Boolean {
@@ -101,8 +114,16 @@ class XrayEngine : VpnEngine {
             lastError = "бинарь ядра $BINARY_NAME не найден в $dir"
             return false
         }
-        // Геоданные (§8): Xray ищет geoip.dat/geosite.dat рядом с бинарём ядра.
-        binary.parentFile?.let { GeoDataFiles.install(it) }
+        // Геоданные (§8): копируются в filesDir, а не в nativeLibraryDir (он только для чтения).
+        if (GeoDataFiles.configNeedsGeo(configJson)) {
+            try {
+                GeoDataFiles.install(App.application)
+            } catch (e: Exception) {
+                lastError = "геоданные не установлены: ${e.message ?: e.javaClass.simpleName}"
+                writeFailure("геоданные", lastError ?: "", configJson)
+                return false
+            }
+        }
         return try {
             val tmp = File.createTempFile("xray-validate-", ".json", App.application.cacheDir)
             try {
@@ -178,7 +199,7 @@ class XrayEngine : VpnEngine {
 
     /** Отчёт о сбое рядом с конфигом: полный текст, конфиг без секретов, журнал ядра. */
     private fun writeFailure(stage: String, error: String, configJson: String?) {
-        val dir = runCatching { App.application.filesDir }.getOrNull() ?: return
+        val dir = runCatching { logDir() }.getOrNull() ?: return
         val log = runCatching { logFile() }.getOrNull()
         val file = XrayDiagnostics.writeFailure(
             dir, stage, error, configJson, XrayDiagnostics.tail(log),
@@ -259,9 +280,12 @@ class XrayEngine : VpnEngine {
     private data class ProcessResult(val exitCode: Int, val output: String)
 
     private fun runProcess(command: List<String>, timeoutMs: Long): ProcessResult {
-        val process = ProcessBuilder(command)
-            .redirectErrorStream(true)
-            .start()
+        val builder = ProcessBuilder(command).redirectErrorStream(true)
+        // ProcessBuilder копирует окружение при инициализации, поэтому путь к
+        // геоданным передаём явно (см. GeoDataFiles.exportEnvironment).
+        builder.environment()[GeoDataFiles.ASSET_LOCATION_ENV] =
+            GeoDataFiles.assetDir(App.application).absolutePath
+        val process = builder.start()
         val finished = process.waitFor(timeoutMs, TimeUnit.MILLISECONDS)
         if (!finished) {
             process.destroyForcibly()
