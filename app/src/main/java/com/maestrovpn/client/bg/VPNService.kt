@@ -160,10 +160,12 @@ class VPNService : VpnService() {
             val builder = Builder()
                 .setSession("Maestro Client")
                 .setMtu(mtu)
-            // setMetered(false) на всех API: без этого cellular-интерфейс может
-            // считаться metered и система ограничит трафик внутри VPN (Android
-            // применяет политику metered к VpnService.Builder даже на API < Q).
-            builder.setMetered(false)
+            // setMetered появился в API 29. На более старых API вызов бросает
+            // NoSuchMethodError (это Error, а не Exception: catch ниже его не
+            // ловит и валит процесс), поэтому вызываем только на Android 10+.
+            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.Q) {
+                builder.setMetered(false)
+            }
             if (Settings.allowBypass) builder.allowBypass()
             builder.addAddress(host, prefix)
             builder.addRoute("0.0.0.0", 0)

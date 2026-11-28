@@ -101,8 +101,16 @@ class XrayEngine : VpnEngine {
             lastError = "бинарь ядра $BINARY_NAME не найден в $dir"
             return false
         }
-        // Геоданные (§8): Xray ищет geoip.dat/geosite.dat рядом с бинарём ядра.
-        binary.parentFile?.let { GeoDataFiles.install(it) }
+        // Геоданные (§8): копируются в filesDir, а не в nativeLibraryDir (он только для чтения).
+        if (GeoDataFiles.configNeedsGeo(configJson)) {
+            try {
+                GeoDataFiles.install(App.application)
+            } catch (e: Exception) {
+                lastError = "геоданные не установлены: ${e.message ?: e.javaClass.simpleName}"
+                writeFailure("геоданные", lastError ?: "", configJson)
+                return false
+            }
+        }
         return try {
             val tmp = File.createTempFile("xray-validate-", ".json", App.application.cacheDir)
             try {
@@ -259,9 +267,12 @@ class XrayEngine : VpnEngine {
     private data class ProcessResult(val exitCode: Int, val output: String)
 
     private fun runProcess(command: List<String>, timeoutMs: Long): ProcessResult {
-        val process = ProcessBuilder(command)
-            .redirectErrorStream(true)
-            .start()
+        val builder = ProcessBuilder(command).redirectErrorStream(true)
+        // ProcessBuilder копирует окружение при инициализации, поэтому путь к
+        // геоданным передаём явно (см. GeoDataFiles.exportEnvironment).
+        builder.environment()[GeoDataFiles.ASSET_LOCATION_ENV] =
+            GeoDataFiles.assetDir(App.application).absolutePath
+        val process = builder.start()
         val finished = process.waitFor(timeoutMs, TimeUnit.MILLISECONDS)
         if (!finished) {
             process.destroyForcibly()

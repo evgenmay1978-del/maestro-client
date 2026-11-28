@@ -9,6 +9,7 @@ import android.net.wifi.WifiManager
 import android.os.PowerManager
 import androidx.core.content.getSystemService
 import com.maestrovpn.client.core.engine.EngineManager
+import com.maestrovpn.client.core.routing.GeoDataFiles
 
 // Точка входа приложения (срез 2): системные сервисы для ядра + инициализация движка.
 // Движок — XrayEngine (срез 7, issue #8); sing-box/libbox удалён полностью.
@@ -21,6 +22,7 @@ class App : Application() {
 
     override fun onCreate() {
         super.onCreate()
+        GeoDataFiles.exportEnvironment(this)
         EngineManager.init(this)
     }
 
