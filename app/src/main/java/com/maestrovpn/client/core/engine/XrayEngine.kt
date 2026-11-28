@@ -69,7 +69,20 @@ class XrayEngine : VpnEngine {
 
     fun configFile(): File = File(App.application.filesDir, CONFIG_FILE_NAME)
 
-    fun logFile(): File = File(App.application.filesDir, LOG_FILE_NAME)
+    /**
+     * Каталог журналов. Внешний files dir (Android/data/<pkg>/files) читается
+     * с устройства через adb shell, приватный filesDir — нет: на release-сборке
+     * run-as запрещён, и журнал ядра после обрыва прочитать нечем (так и вышло
+     * 28.11.2026 — сеть падала, логов нет). Внешний каталог доступен без
+     * разрешений и без root, поэтому журнал живёт там; при отсутствии
+     * внешнего хранилища — прежний приватный путь.
+     */
+    fun logDir(): File {
+        val app = this.app ?: App.application
+        return app.getExternalFilesDir(null) ?: app.filesDir
+    }
+
+    fun logFile(): File = File(logDir(), LOG_FILE_NAME)
 
     /** Есть ли в конфиге tun inbound — решает, VPN это или «только прокси». */
     fun isVpnMode(configJson: String): Boolean {
@@ -186,7 +199,7 @@ class XrayEngine : VpnEngine {
 
     /** Отчёт о сбое рядом с конфигом: полный текст, конфиг без секретов, журнал ядра. */
     private fun writeFailure(stage: String, error: String, configJson: String?) {
-        val dir = runCatching { App.application.filesDir }.getOrNull() ?: return
+        val dir = runCatching { logDir() }.getOrNull() ?: return
         val log = runCatching { logFile() }.getOrNull()
         val file = XrayDiagnostics.writeFailure(
             dir, stage, error, configJson, XrayDiagnostics.tail(log),
