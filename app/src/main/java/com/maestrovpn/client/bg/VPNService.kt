@@ -194,6 +194,12 @@ class VPNService : VpnService() {
                 }
             }
 
+            // Что реально ушло в Builder: без этой строки по логу нельзя понять,
+            // кого туннель пропускает, а кого нет (разбор 28.11.2026).
+            VpnLog.i(
+                "tun: policy include=${policy.include} exclude=${policy.exclude} " +
+                    "perApp=${Settings.perAppProxyEnabled}",
+            )
             VpnLog.i("tun: address=$host/$prefix mtu=$mtu dns=$DNS_SERVERS")
             tunPfd = builder.establish()
                 ?: throw IllegalStateException(

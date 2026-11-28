@@ -86,7 +86,10 @@ object XrayConfigBuilder {
 
         val config = buildJsonObject {
             put("log", buildJsonObject {
-                put("loglevel", "warning")
+                // info, а не warning: на warning ядро молчит про tun-путь, и
+                // поломка «подключено, но трафика нет» не оставляет следов.
+                // access остаётся none — тела запросов в журнал не попадают.
+                put("loglevel", "info")
                 put("access", "none")
             })
             // DNS профиля приоритетнее: он задаёт split-DNS для маршрутизации.
